@@ -1,4 +1,4 @@
-name: Debug case-sensitive inner CFF tracer
+name: Debug second CFF regression
 
 on:
   push:
@@ -19,35 +19,28 @@ jobs:
           node-version: 22.12.0
           cache: npm
       - run: npm ci
-      - name: Apply staged fix in runner
+      - name: Instrument add3 recognizer in runner only
         run: |
           python - <<'PY'
           from pathlib import Path
-          workflow = Path('.github/workflows/fix-inner-cff-state.yml').read_text()
-          start_token = "          python - <<'PY'\n"
-          end_token = "\n          PY\n"
-          start = workflow.index(start_token) + len(start_token)
-          end = workflow.index(end_token, start)
-          lines = workflow[start:end].splitlines()
-          script = "\n".join(line[10:] if line.startswith("          ") else line for line in lines) + "\n"
-          Path('/tmp/fix_inner_cff_state.py').write_text(script)
-          PY
-          python /tmp/fix_inner_cff_state.py
-      - name: Instrument patched twice recognizer
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          path = Path('src/passes/jsconfuser/cff/bodyTwice213.ts')
+          path = Path('src/passes/jsconfuser/cff/body213.ts')
           text = path.read_text()
           probes = [
-            ('if (!traces) return;', 'if (!traces) { console.error("TRACE_NULL", innerPath); return; }\n    console.error("TRACE_COUNT", innerPath, traces.length);'),
-            ('if (path && typeof right === "number") {', 'console.error("TRACE_RETURN", { innerPath, slot75: currentStates[75], right, operator: expression.operator, statesSum: currentStates.reduce((a, b) => a + b, 0) });\n            if (path && typeof right === "number") {'),
-            ('if (callMatch && parityMatch && doubleReturn && plusReturn) matchedSwitches += 1;', 'console.error("TRACE_MATCH", { innerPath, callMatch, parityMatch, doubleReturn, plusReturn, returnCandidates });\n    if (callMatch && parityMatch && doubleReturn && plusReturn) matchedSwitches += 1;'),
+            ('if (models.length !== 1) return null;', 'if (models.length !== 1) { console.error("ADD3_FAIL models", models.length); return null; }'),
+            ('if (!wrapper) return null;', 'if (!wrapper) { console.error("ADD3_FAIL wrapper"); return null; }'),
+            ('if (!wrapperAssignment) return null;', 'if (!wrapperAssignment) { console.error("ADD3_FAIL assignment", wrapper); return null; }'),
+            ('if (!privateScope) return null;', 'if (!privateScope) { console.error("ADD3_FAIL privateScope", wrapper); return null; }'),
+            ('if (!parameterSlots || new Set(parameterSlots).size !== 3) return null;', 'if (!parameterSlots || new Set(parameterSlots).size !== 3) { console.error("ADD3_FAIL parameterSlots", { parameterSlots, wrapper, privateScope }); return null; }'),
+            ('if (!nested) return null;', 'if (!nested) { console.error("ADD3_FAIL nested", { wrapper, privateScope, parameterSlots }); return null; }'),
+            ('if (!body || body.consoleProperty !== "log") return null;', 'if (!body || body.consoleProperty !== "log") { console.error("ADD3_FAIL body", { body, wrapper, privateScope, parameterSlots, nested }); return null; }'),
           ]
+          start = text.index('function findAdd3Pattern(')
+          prefix = text[:start]
+          suffix = text[start:]
           for old, new in probes:
-            if old not in text:
-              raise SystemExit(f'missing target: {old}')
-            text = text.replace(old, new, 1)
-          path.write_text(text)
+            if old not in suffix:
+              raise SystemExit(f'missing add3 probe target: {old}')
+            suffix = suffix.replace(old, new, 1)
+          path.write_text(prefix + suffix)
           PY
-      - run: npm test -- --run test/transforms/control-flow-flattening-regression.test.ts
+      - run: npm test -- --run test/transforms/control-flow-flattening-regression2.test.ts
