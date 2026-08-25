@@ -12,6 +12,7 @@ import { createDuplicateLiterals213Pass } from "./jsconfuser/extraction/duplicat
 import { createObjectExtraction213Pass } from "./jsconfuser/extraction/objectExtraction.js";
 import { createGlobalConcealing213Pass } from "./jsconfuser/globals/v213.js";
 import { createPack213Pass } from "./jsconfuser/pack/v213.js";
+import { createRgf213Pass } from "./jsconfuser/rgf/v213.js";
 import { createStringConcealing213Pass } from "./jsconfuser/strings/v213.js";
 import { createVariableMasking213Pass } from "./jsconfuser/variableMasking/v213.js";
 
@@ -19,6 +20,7 @@ export function registerBuiltInPasses(registry: PassRegistry): void {
   registry.register(createPack213Pass());
   registry.register(createDuplicateLiterals213Pass());
   registry.register(createStringConcealing213Pass());
+  registry.register(createRgf213Pass());
   registry.register(createGlobalConcealing213Pass());
   registry.register(createObjectExtraction213Pass());
   registry.register(createVariableMasking213Pass());
