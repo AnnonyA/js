@@ -1,0 +1,220 @@
+name: Patch add3 CFF generalization
+
+on:
+  push:
+    branches:
+      - feature/jsconfuser-decompiler-phase9-generalize
+    paths:
+      - .github/workflows/patch-add3-cff-generalization.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/jsconfuser-decompiler-phase9-generalize
+      - name: Generalize add3 semantic correlation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('src/passes/jsconfuser/cff/body213.ts')
+          text = path.read_text()
+
+          start = text.index('function dynamicMemberPath(')
+          end = text.index('function findWrapperAssignment(', start)
+          dynamic = r'''function dynamicMemberPath(
+            node: t.Node,
+            model: Cff213Model,
+            states: readonly number[],
+            inner?: { path: readonly string[]; states: readonly number[] },
+          ): string[] | null {
+            if (node.type === "Identifier") return node.name === model.scopeName ? [] : null;
+            if (node.type !== "MemberExpression") return null;
+            const parent = dynamicMemberPath(node.object, model, states, inner);
+            if (!parent || node.property.type === "PrivateName") return null;
+            const property = !node.computed && node.property.type === "Identifier"
+              ? node.property.name
+              : node.computed && node.property.type === "StringLiteral"
+                ? node.property.value
+                : node.computed
+                  ? decodeXor(node.property, model, states, inner)
+                  : null;
+            return property === null ? null : [...parent, property];
+          }
+
+          '''
+          text = text[:start] + dynamic + text[end:]
+
+          start = text.index('function privateLeaf(')
+          end = text.index('function findAdd3Pattern(', start)
+          semantic = r'''function tailExpression(node: t.Expression): t.Expression {
+            return node.type === "SequenceExpression" ? node.expressions.at(-1)! : node;
+          }
+
+          function semanticBody(
+            model: Cff213Model,
+            outerStates: readonly number[],
+            nestedStates: readonly number[],
+            privateScope: string,
+          ): {
+            parameterOrder: string[];
+            threshold: number;
+            consequent: string;
+            alternate: string;
+            consoleProperty: string;
+          } | null {
+            type TotalCandidate = {
+              targetPath: string[];
+              parameterOrder: string[];
+            };
+            type LabelCandidate = {
+              targetPath: string[];
+              totalPath: string[];
+              threshold: number;
+              consequent: string;
+              alternate: string;
+            };
+            type ConsoleCandidate = {
+              argumentPath: string[];
+              property: string;
+            };
+
+            const matches: Array<{
+              parameterOrder: string[];
+              threshold: number;
+              consequent: string;
+              alternate: string;
+              consoleProperty: string;
+            }> = [];
+
+            visitNodes(model.switchStatement, (node) => {
+              if (node.type !== "SwitchStatement" || node === model.switchStatement) return;
+              const innerPath = innerSwitchPath(node, model);
+              if (!innerPath) return;
+              const inner = { path: innerPath, states: nestedStates };
+              const totals: TotalCandidate[] = [];
+              const labels: LabelCandidate[] = [];
+              const consoles: ConsoleCandidate[] = [];
+              const returns: string[][] = [];
+
+              visitNodes(node, (candidate) => {
+                if (
+                  candidate.type === "AssignmentExpression" &&
+                  candidate.operator === "=" &&
+                  candidate.left.type === "MemberExpression"
+                ) {
+                  const targetPath = dynamicMemberPath(candidate.left, model, outerStates, inner);
+                  if (!targetPath) return;
+
+                  if (candidate.right.type === "BinaryExpression") {
+                    const operands = flattenPlus(candidate.right);
+                    if (operands?.length === 3) {
+                      const parameterOrder = operands.map((operand) => {
+                        const path = dynamicMemberPath(operand, model, outerStates, inner);
+                        return path && path.length === 2 && path[0] === privateScope ? path[1]! : null;
+                      });
+                      if (parameterOrder.every((slot): slot is string => slot !== null)) {
+                        totals.push({ targetPath, parameterOrder });
+                      }
+                    }
+                  }
+
+                  if (
+                    candidate.right.type === "ConditionalExpression" &&
+                    candidate.right.test.type === "BinaryExpression" &&
+                    candidate.right.test.operator === ">" &&
+                    t.isExpression(candidate.right.test.left) &&
+                    t.isExpression(candidate.right.test.right)
+                  ) {
+                    const totalPath = dynamicMemberPath(candidate.right.test.left, model, outerStates, inner);
+                    const threshold = evaluateInner(
+                      candidate.right.test.right,
+                      model,
+                      outerStates,
+                      innerPath,
+                      nestedStates,
+                    );
+                    const consequent = candidate.right.consequent.type === "StringLiteral"
+                      ? candidate.right.consequent.value
+                      : decodeXor(candidate.right.consequent, model, outerStates, inner);
+                    const alternate = candidate.right.alternate.type === "StringLiteral"
+                      ? candidate.right.alternate.value
+                      : decodeXor(candidate.right.alternate, model, outerStates, inner);
+                    if (
+                      totalPath &&
+                      typeof threshold === "number" &&
+                      consequent !== null &&
+                      alternate !== null
+                    ) {
+                      labels.push({ targetPath, totalPath, threshold, consequent, alternate });
+                    }
+                  }
+                }
+
+                if (
+                  candidate.type === "CallExpression" &&
+                  candidate.callee.type === "MemberExpression" &&
+                  candidate.callee.object.type === "Identifier" &&
+                  candidate.callee.object.name === "console" &&
+                  candidate.arguments.length >= 1 &&
+                  candidate.callee.property.type !== "PrivateName"
+                ) {
+                  const argument = candidate.arguments[0];
+                  if (!argument || argument.type === "SpreadElement") return;
+                  const argumentPath = dynamicMemberPath(argument, model, outerStates, inner);
+                  const property = !candidate.callee.computed && candidate.callee.property.type === "Identifier"
+                    ? candidate.callee.property.name
+                    : candidate.callee.computed && candidate.callee.property.type === "StringLiteral"
+                      ? candidate.callee.property.value
+                      : candidate.callee.computed
+                        ? decodeXor(candidate.callee.property, model, outerStates, inner)
+                        : null;
+                  if (argumentPath && property) consoles.push({ argumentPath, property });
+                }
+
+                if (candidate.type === "ReturnStatement" && candidate.argument && t.isExpression(candidate.argument)) {
+                  const path = dynamicMemberPath(tailExpression(candidate.argument), model, outerStates, inner);
+                  if (path) returns.push(path);
+                }
+              });
+
+              for (const total of totals) {
+                for (const label of labels) {
+                  if (!pathsEqual(label.totalPath, total.targetPath)) continue;
+                  const console = consoles.find((item) => pathsEqual(item.argumentPath, label.targetPath));
+                  if (!console) continue;
+                  if (!returns.some((path) => pathsEqual(path, total.targetPath))) continue;
+                  matches.push({
+                    parameterOrder: total.parameterOrder,
+                    threshold: label.threshold,
+                    consequent: label.consequent,
+                    alternate: label.alternate,
+                    consoleProperty: console.property,
+                  });
+                }
+              }
+            });
+
+            const unique = new Map<string, (typeof matches)[number]>();
+            for (const match of matches) {
+              const key = JSON.stringify(match);
+              unique.set(key, match);
+            }
+            return unique.size === 1 ? [...unique.values()][0]! : null;
+          }
+
+          '''
+          text = text[:start] + semantic + text[end:]
+          path.write_text(text)
+          PY
+      - name: Commit exact patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/passes/jsconfuser/cff/body213.ts
+          git commit -m "fix: correlate add3 CFF semantics across cases"
+          git push origin HEAD:feature/jsconfuser-decompiler-phase9-generalize
