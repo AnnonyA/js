@@ -123,19 +123,23 @@ jobs:
             spans.sort((a, b) => b[0] - a[0]);
             for (const [start, end] of spans) text = text.slice(0, start) + text.slice(end);
 
-            const runtimeImport = /import \{([\s\S]*?)\} from "\.\/runtime213\.js";/;
-            const match = text.match(runtimeImport);
-            if (!match) throw new Error(`runtime import not found in ${path}`);
-            const existing = match[1]
-              .split(",")
-              .map((item) => item.trim())
-              .filter(Boolean);
+            const importAst = parseTs(text);
+            const runtimeImport = importAst.program.body.find(
+              (node) => node.type === "ImportDeclaration" && node.source.value === "./runtime213.js",
+            );
+            if (!runtimeImport || typeof runtimeImport.start !== "number" || typeof runtimeImport.end !== "number") {
+              throw new Error(`runtime import not found in ${path}`);
+            }
+            const existing = runtimeImport.specifiers.flatMap((specifier) => {
+              if (specifier.type !== "ImportSpecifier") return [];
+              return [specifier.imported.type === "Identifier" ? specifier.imported.name : specifier.imported.value];
+            });
             for (const name of ["callPath", "innerSwitchPath", "nestedStatesFromOuterTrace", "tailExpression"]) {
               if (!existing.includes(name)) existing.push(name);
             }
             existing.sort((a, b) => a.localeCompare(b));
             const rebuilt = `import {\n${existing.map((name) => `  ${name},`).join("\n")}\n} from "./runtime213.js";`;
-            text = text.replace(runtimeImport, rebuilt);
+            text = text.slice(0, runtimeImport.start) + rebuilt + text.slice(runtimeImport.end);
 
             if (path.endsWith("body213.ts")) {
               const before = "nestedStatesFromOuterTrace(model, wrapper, privateScope);";
