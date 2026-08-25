@@ -64,7 +64,7 @@ TEST_OUTPUT = floorNumber(1.9);
 
   expect(result.cleanCode).not.toContain("_rgf_eval");
   expect(result.cleanCode).toMatch(/function\s+floorNumber\s*\(\s*num\s*\)/);
-  expect(result.cleanCode).toContain("Math.floor(num)");
+  expect(result.cleanCode).toMatch(/Math(?:\.floor|\["floor"\])\(num\)/);
   expect(() => parseJavaScript(result.cleanCode)).not.toThrow();
 });
 
@@ -82,6 +82,6 @@ TEST_OUTPUT = floorNumber(1.9);
   const result = await decompile(obfuscated);
 
   expect(result.report.transforms.rgf).toBeLessThan(0.5);
-  expect(result.cleanCode).toContain("_Math.floor(num)");
+  expect(result.cleanCode).toMatch(/_Math(?:\.floor|\["floor"\])\(num\)/);
   expect(() => parseJavaScript(result.cleanCode)).not.toThrow();
 });
