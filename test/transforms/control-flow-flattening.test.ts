@@ -21,6 +21,30 @@ function cffFixture(): string {
   );
 }
 
+function visitNodes(node: t.Node, callback: (node: t.Node) => void): void {
+  callback(node);
+  const record = node as unknown as Record<string, unknown>;
+  for (const value of Object.values(record)) {
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (
+          item &&
+          typeof item === "object" &&
+          typeof (item as { type?: unknown }).type === "string"
+        ) {
+          visitNodes(item as t.Node, callback);
+        }
+      }
+    } else if (
+      value &&
+      typeof value === "object" &&
+      typeof (value as { type?: unknown }).type === "string"
+    ) {
+      visitNodes(value as t.Node, callback);
+    }
+  }
+}
+
 function collectExportAliases(ast: t.File): Map<string, string> {
   const aliases = new Map<string, string>();
   for (const statement of ast.program.body) {
@@ -47,6 +71,36 @@ function collectExportAliases(ast: t.File): Map<string, string> {
   return aliases;
 }
 
+function findAssignedFunctionByProperty(
+  ast: t.File,
+  propertyName: string,
+): t.FunctionExpression | null {
+  let match: t.FunctionExpression | null = null;
+  visitNodes(ast.program, (node) => {
+    if (
+      node.type !== "AssignmentExpression" ||
+      node.operator !== "=" ||
+      node.left.type !== "MemberExpression" ||
+      !node.left.computed ||
+      node.left.property.type !== "StringLiteral" ||
+      node.left.property.value !== propertyName ||
+      node.right.type !== "FunctionExpression"
+    ) {
+      return;
+    }
+    match = node.right;
+  });
+  return match;
+}
+
+function containsIdentifier(node: t.Node, name: string): boolean {
+  let found = false;
+  visitNodes(node, (candidate) => {
+    if (candidate.type === "Identifier" && candidate.name === name) found = true;
+  });
+  return found;
+}
+
 it("traces the 2.1.3 CFF entry state and decodes the exported API", async () => {
   const result = await decompile(cffFixture());
   const ast = parseJavaScript(result.cleanCode);
@@ -54,7 +108,7 @@ it("traces the 2.1.3 CFF entry state and decodes the exported API", async () => 
   expect(result.report.transforms.controlFlowFlattening).toBeGreaterThanOrEqual(0.8);
 
   let exportedNames: string[] | null = null;
-  const visit = (node: t.Node): void => {
+  visitNodes(ast.program, (node) => {
     if (
       node.type === "AssignmentExpression" &&
       node.left.type === "MemberExpression" &&
@@ -71,30 +125,8 @@ it("traces the 2.1.3 CFF entry state and decodes the exported API", async () => 
         .filter((name): name is string => Boolean(name))
         .sort();
     }
+  });
 
-    const record = node as unknown as Record<string, unknown>;
-    for (const value of Object.values(record)) {
-      if (Array.isArray(value)) {
-        for (const item of value) {
-          if (
-            item &&
-            typeof item === "object" &&
-            typeof (item as { type?: unknown }).type === "string"
-          ) {
-            visit(item as t.Node);
-          }
-        }
-      } else if (
-        value &&
-        typeof value === "object" &&
-        typeof (value as { type?: unknown }).type === "string"
-      ) {
-        visit(value as t.Node);
-      }
-    }
-  };
-
-  visit(ast.program);
   expect(exportedNames).toEqual(["add3", "scenario", "twice"]);
 });
 
@@ -155,6 +187,66 @@ it("models exported CFF wrapper entry states for later body reconstruction", asy
       stateCount: 90,
       entrySum: -857,
     },
+  ]);
+});
+
+it("reconstructs the add3 CFF wrapper into a clean function body", async () => {
+  const result = await decompile(cffFixture());
+  const ast = parseJavaScript(result.cleanCode);
+  const add3 = findAssignedFunctionByProperty(ast, "cFzWIDm");
+
+  expect(add3).not.toBeNull();
+  expect(add3?.params).toHaveLength(3);
+  expect(add3?.params.every((parameter) => parameter.type === "Identifier")).toBe(true);
+  expect(containsIdentifier(add3!, "__p_WW9X_4_main")).toBe(false);
+
+  const body = add3!.body.body;
+  expect(body).toHaveLength(4);
+  expect(body[0]?.type).toBe("VariableDeclaration");
+  expect(body[1]?.type).toBe("VariableDeclaration");
+  expect(body[2]?.type).toBe("ExpressionStatement");
+  expect(body[3]?.type).toBe("ReturnStatement");
+
+  const total = body[0] as t.VariableDeclaration;
+  const label = body[1] as t.VariableDeclaration;
+  const totalInit = total.declarations[0]?.init;
+  const labelInit = label.declarations[0]?.init;
+  expect(totalInit?.type).toBe("BinaryExpression");
+  expect(labelInit?.type).toBe("ConditionalExpression");
+
+  const conditional = labelInit as t.ConditionalExpression;
+  expect(conditional.test.type).toBe("BinaryExpression");
+  expect(conditional.test.type === "BinaryExpression" && conditional.test.operator).toBe(">");
+  expect(
+    conditional.test.type === "BinaryExpression" &&
+      conditional.test.right.type === "NumericLiteral" &&
+      conditional.test.right.value,
+  ).toBe(5);
+  expect(
+    [conditional.consequent, conditional.alternate]
+      .filter((node): node is t.StringLiteral => node.type === "StringLiteral")
+      .map((node) => node.value)
+      .sort(),
+  ).toEqual(["large", "small"]);
+
+  const log = body[2] as t.ExpressionStatement;
+  expect(log.expression.type).toBe("CallExpression");
+  if (log.expression.type === "CallExpression") {
+    expect(log.expression.callee.type).toBe("MemberExpression");
+    if (log.expression.callee.type === "MemberExpression") {
+      expect(log.expression.callee.object.type === "Identifier" && log.expression.callee.object.name).toBe(
+        "console",
+      );
+      expect(
+        !log.expression.callee.computed &&
+          log.expression.callee.property.type === "Identifier" &&
+          log.expression.callee.property.name,
+      ).toBe("log");
+    }
+  }
+
+  expect(result.report.recovery.cffBodies).toEqual([
+    { exportName: "add3", reconstructed: true },
   ]);
 });
 
