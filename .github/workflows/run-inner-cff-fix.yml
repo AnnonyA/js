@@ -36,7 +36,7 @@ jobs:
           Path('/tmp/fix_inner_cff_state.py').write_text(script)
           PY
           python /tmp/fix_inner_cff_state.py
-      - name: Teach inner evaluator to sum nested state arrays
+      - name: Complete inner CFF evaluator support
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -47,6 +47,11 @@ jobs:
           insert_at = text.index(marker, function_start)
           addition = '''  if (\n    node.type === "CallExpression" &&\n    node.callee.type === "Identifier" &&\n    node.callee.name === model.sumName &&\n    node.arguments.length === 1\n  ) {\n    const argument = node.arguments[0];\n    if (argument && argument.type !== "SpreadElement" && t.isNode(argument)) {\n      const path = staticMemberPath(argument, model.scopeName);\n      if (path && pathsEqual(path, innerPath)) {\n        return innerStates.reduce((sum, value) => sum + value, 0);\n      }\n    }\n  }\n'''
           text = text[:insert_at] + addition + text[insert_at:]
+          old = 'const branches: Array<t.Statement | null> = test === UNKNOWN'
+          new = 'const branches: Array<t.Statement | null | undefined> = test === UNKNOWN'
+          if old not in text:
+            raise SystemExit('inner branch type marker missing')
+          text = text.replace(old, new, 1)
           path.write_text(text)
           PY
       - name: Verify deterministic regression
