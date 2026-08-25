@@ -9,6 +9,8 @@ on:
       - test/transforms/pack.test.ts
       - src/passes/jsconfuser/pack/**
       - src/passes/builtins.ts
+      - src/fingerprint/detectors/pack.ts
+      - src/fingerprint/transforms.ts
 
 jobs:
   pack:
@@ -25,4 +27,6 @@ jobs:
       - run: npm test -- --run test/transforms/pack.test.ts
       - run: npm run typecheck
       - run: npm run build
+      - name: Run full suite
+        run: npm test -- --run --testTimeout=15000
       - run: git diff --check
