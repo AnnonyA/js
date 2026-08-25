@@ -1,0 +1,9 @@
+{
+  "target": "node",
+  "compact": true,
+  "preset": false,
+  "renameLabels": false,
+  "renameGlobals": true,
+  "preserveFunctionLength": false,
+  "renameVariables": true
+}
