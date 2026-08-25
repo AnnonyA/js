@@ -1,0 +1,142 @@
+name: Refactor shared CFF wrapper helpers
+
+on:
+  push:
+    branches:
+      - feature/jsconfuser-cff-shared-wrapper-helpers
+    paths:
+      - .github/workflows/refactor-cff-wrapper-helpers.yml
+
+permissions:
+  contents: write
+
+jobs:
+  refactor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/jsconfuser-cff-shared-wrapper-helpers
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+      - run: npm ci
+      - name: Migrate CFF body passes to wrapperRuntime213
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const { parse } = require('@babel/parser');
+
+          const configs = {
+            'src/passes/jsconfuser/cff/body213.ts': {
+              functions: [
+                'findWrapperAssignment', 'wrapperPrivateScope', 'callTargetPath',
+                'recursiveHelperStates', 'nestedStatesFromOuterTrace', 'innerSwitchPath',
+              ],
+              interfaces: ['NestedStateTrace'],
+              imports: [
+                'callPath', 'findWrapperAssignment', 'innerSwitchPath',
+                'traceNestedStateInvocation', 'wrapperPrivateScope',
+              ],
+              replacements: [
+                ['callTargetPath(', 'callPath('],
+                ['nestedStatesFromOuterTrace(model, wrapper, privateScope)', 'traceNestedStateInvocation(model, wrapper, privateScope, 40)'],
+              ],
+            },
+            'src/passes/jsconfuser/cff/bodyTwice213.ts': {
+              functions: [
+                'wrapperModels', 'findWrapperAssignment', 'wrapperPrivateScope',
+                'mainArgumentName', 'inputSlot', 'callPath', 'recursiveHelperStates',
+                'nestedStatesFromOuterTrace', 'innerSwitchPath',
+              ],
+              interfaces: ['NestedStateTrace'],
+              imports: [
+                'callPath', 'findWrapperAssignment', 'innerSwitchPath', 'inputSlot',
+                'traceNestedStateInvocation', 'wrapperModels', 'wrapperPrivateScope',
+              ],
+              replacements: [
+                ['nestedStatesFromOuterTrace(model, wrapper, privateScope)', 'traceNestedStateInvocation(model, wrapper, privateScope, 32)'],
+              ],
+            },
+            'src/passes/jsconfuser/cff/bodyScenario213.ts': {
+              functions: [
+                'wrapperModels', 'findWrapperAssignment', 'wrapperPrivateScope',
+                'mainArgumentName', 'inputSlot', 'callPath', 'recursiveHelperStates',
+                'nestedStatesFromOuterTrace', 'innerSwitchPath',
+              ],
+              interfaces: ['NestedStateTrace'],
+              imports: [
+                'callPath', 'findWrapperAssignment', 'innerSwitchPath', 'inputSlot',
+                'traceNestedStateInvocation', 'wrapperModels', 'wrapperPrivateScope',
+              ],
+              replacements: [
+                ['nestedStatesFromOuterTrace(model, wrapper, privateScope)', 'traceNestedStateInvocation(model, wrapper, privateScope, 40)'],
+              ],
+            },
+          };
+
+          function parseTs(text) {
+            return parse(text, { sourceType: 'module', plugins: ['typescript'] }).program;
+          }
+
+          for (const [file, config] of Object.entries(configs)) {
+            let text = fs.readFileSync(file, 'utf8');
+            const ast = parseTs(text);
+            const removals = [];
+            const expected = new Set([...config.functions, ...config.interfaces]);
+            const found = new Set();
+
+            for (const statement of ast.body) {
+              if (
+                statement.type === 'FunctionDeclaration' &&
+                statement.id && config.functions.includes(statement.id.name)
+              ) {
+                found.add(statement.id.name);
+                removals.push([statement.start, statement.end]);
+              } else if (
+                statement.type === 'TSInterfaceDeclaration' &&
+                config.interfaces.includes(statement.id.name)
+              ) {
+                found.add(statement.id.name);
+                removals.push([statement.start, statement.end]);
+              }
+            }
+
+            const missing = [...expected].filter((name) => !found.has(name));
+            if (missing.length) throw new Error(`${file}: missing expected declarations: ${missing.join(', ')}`);
+
+            removals.sort((a, b) => b[0] - a[0]);
+            for (const [start, end] of removals) text = text.slice(0, start) + text.slice(end);
+
+            for (const [from, to] of config.replacements) {
+              const count = text.split(from).length - 1;
+              if (count < 1) throw new Error(`${file}: replacement source not found: ${from}`);
+              text = text.split(from).join(to);
+            }
+
+            const reparsed = parseTs(text);
+            let insertAt = 0;
+            for (const statement of reparsed.body) {
+              if (statement.type === 'ImportDeclaration') insertAt = statement.end;
+              else break;
+            }
+            const importBlock = `import {\n${config.imports.map((name) => `  ${name},`).join('\n')}\n} from "./wrapperRuntime213.js";\n`;
+            if (!text.includes('from "./wrapperRuntime213.js"')) {
+              text = text.slice(0, insertAt) + '\n' + importBlock + text.slice(insertAt);
+            }
+            text = text.replace(/\n{3,}/g, '\n\n');
+            fs.writeFileSync(file, text.endsWith('\n') ? text : text + '\n');
+          }
+          NODE
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test -- --run
+      - run: git diff --check
+      - name: Commit refactor
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/passes/jsconfuser/cff/body213.ts src/passes/jsconfuser/cff/bodyTwice213.ts src/passes/jsconfuser/cff/bodyScenario213.ts
+          git commit -m "refactor: share 2.1.3 CFF wrapper helpers"
+          git push origin HEAD:feature/jsconfuser-cff-shared-wrapper-helpers
