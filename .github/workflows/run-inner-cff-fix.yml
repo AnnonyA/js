@@ -36,6 +36,19 @@ jobs:
           Path('/tmp/fix_inner_cff_state.py').write_text(script)
           PY
           python /tmp/fix_inner_cff_state.py
+      - name: Teach inner evaluator to sum nested state arrays
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('src/passes/jsconfuser/cff/runtime213.ts')
+          text = path.read_text()
+          function_start = text.index('export function evaluateInner(')
+          marker = '  if (node.type === "UnaryExpression") {'
+          insert_at = text.index(marker, function_start)
+          addition = '''  if (\n    node.type === "CallExpression" &&\n    node.callee.type === "Identifier" &&\n    node.callee.name === model.sumName &&\n    node.arguments.length === 1\n  ) {\n    const argument = node.arguments[0];\n    if (argument && argument.type !== "SpreadElement" && t.isNode(argument)) {\n      const path = staticMemberPath(argument, model.scopeName);\n      if (path && pathsEqual(path, innerPath)) {\n        return innerStates.reduce((sum, value) => sum + value, 0);\n      }\n    }\n  }\n'''
+          text = text[:insert_at] + addition + text[insert_at:]
+          path.write_text(text)
+          PY
       - name: Verify deterministic regression
         run: npm test -- --run test/transforms/control-flow-flattening-regression.test.ts
       - run: npm run typecheck
