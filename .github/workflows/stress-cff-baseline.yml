@@ -1,0 +1,27 @@
+name: Stress baseline CFF randomizations
+
+on:
+  push:
+    branches:
+      - feature/jsconfuser-cff-shared-wrapper-helpers
+    paths:
+      - .github/workflows/stress-cff-baseline.yml
+
+jobs:
+  stress:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/jsconfuser-cff-shared-wrapper-helpers
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+      - run: npm ci
+      - name: Run randomized CFF test repeatedly on baseline bodies
+        run: |
+          for i in $(seq 1 10); do
+            echo "=== baseline randomized run $i/10 ==="
+            npm test -- --run test/transforms/control-flow-flattening-randomized.test.ts
+          done
