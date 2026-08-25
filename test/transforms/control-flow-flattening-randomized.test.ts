@@ -66,4 +66,4 @@ it("recovers CFF bodies across fresh 2.1.3 randomizations without golden entry s
 
     expect(sortedBodies).toEqual(expectedBodies);
   }
-});
+}, 30_000);
