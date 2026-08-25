@@ -1,4 +1,5 @@
 import type { DecompilerContext } from "../core/context.js";
+import { detectStringConcealing } from "./detectors/stringConcealing.js";
 import {
   detectControlFlowFlattening,
   detectDeadCode,
@@ -6,7 +7,6 @@ import {
   detectGlobalConcealing,
   detectOpaquePredicates,
   detectRenameVariables,
-  detectStringConcealing,
   detectVariableMasking,
 } from "./detectors/structural.js";
 import { detection, type DetectionResult } from "./detectors/types.js";
