@@ -1,0 +1,165 @@
+name: Refactor nested CFF 2.1.3 tracer
+
+on:
+  push:
+    branches:
+      - refactor/jsconfuser-cff-trace213
+    paths:
+      - .github/workflows/refactor-cff-trace213.yml
+
+permissions:
+  contents: write
+
+jobs:
+  refactor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refactor/jsconfuser-cff-trace213
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+      - run: npm ci
+      - name: Extract nested tracer
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync, writeFileSync } from "node:fs";
+          import { parse } from "@babel/parser";
+
+          const dir = "src/passes/jsconfuser/cff";
+          const body213Path = `${dir}/body213.ts`;
+          const runtimePath = `${dir}/runtime213.ts`;
+
+          function parseTs(text) {
+            return parse(text, { sourceType: "module", plugins: ["typescript"] });
+          }
+
+          function topLevelFunctionSource(text, name) {
+            const ast = parseTs(text);
+            const node = ast.program.body.find(
+              (item) => item.type === "FunctionDeclaration" && item.id?.name === name,
+            );
+            if (!node || typeof node.start !== "number" || typeof node.end !== "number") {
+              throw new Error(`Missing function ${name}`);
+            }
+            return text.slice(node.start, node.end);
+          }
+
+          const canonical = readFileSync(body213Path, "utf8");
+          let callPath = topLevelFunctionSource(canonical, "callTargetPath")
+            .replace("function callTargetPath(", "export function callPath(");
+          const recursiveHelperStates = topLevelFunctionSource(canonical, "recursiveHelperStates");
+          let nestedTrace = topLevelFunctionSource(canonical, "nestedStatesFromOuterTrace")
+            .replace(
+              /privateScope: string,\n\): NestedStateTrace \| null \{/,
+              "privateScope: string,\n  maxSteps = 32,\n): NestedStateTrace | null {",
+            )
+            .replace("step < 40", "step < maxSteps")
+            .replaceAll("callTargetPath(", "callPath(");
+          const innerSwitchPath = `export ${topLevelFunctionSource(canonical, "innerSwitchPath")}`;
+          const tailExpression = `export ${topLevelFunctionSource(canonical, "tailExpression")}`;
+
+          if (!callPath.includes("export function callPath(")) throw new Error("callPath rename failed");
+          if (!nestedTrace.includes("maxSteps = 32") || !nestedTrace.includes("step < maxSteps")) {
+            throw new Error("trace budget parameterization failed");
+          }
+
+          let runtime = readFileSync(runtimePath, "utf8");
+          if (!runtime.includes('import type { ExportedCffWrapperModel } from "./wrappers.js";')) {
+            runtime = runtime.replace(
+              'import type { Cff213Model } from "./model.js";\n',
+              'import type { Cff213Model } from "./model.js";\nimport type { ExportedCffWrapperModel } from "./wrappers.js";\n',
+            );
+          }
+          if (!runtime.includes("export interface NestedStateTrace")) {
+            const marker = "export interface InnerStateContext {";
+            const index = runtime.indexOf(marker);
+            if (index < 0) throw new Error("InnerStateContext marker not found");
+            runtime = runtime.slice(0, index) +
+              "export interface NestedStateTrace {\n  invocationStates: number[];\n  innerStates: number[];\n}\n\n" +
+              runtime.slice(index);
+          }
+
+          for (const marker of ["export function callPath(", "export function nestedStatesFromOuterTrace(", "export function innerSwitchPath(", "export function tailExpression("]) {
+            if (runtime.includes(marker)) throw new Error(`runtime already contains ${marker}`);
+          }
+
+          nestedTrace = `export ${nestedTrace}`;
+          runtime = runtime.trimEnd() + "\n\n" + [
+            callPath,
+            recursiveHelperStates,
+            nestedTrace,
+            innerSwitchPath,
+            tailExpression,
+          ].join("\n\n") + "\n";
+          writeFileSync(runtimePath, runtime);
+
+          function stripBody(path, localCallName) {
+            let text = readFileSync(path, "utf8");
+            const ast = parseTs(text);
+            const removeFunctions = new Set([
+              localCallName,
+              "recursiveHelperStates",
+              "nestedStatesFromOuterTrace",
+              "innerSwitchPath",
+              "tailExpression",
+            ]);
+            const spans = [];
+            for (const node of ast.program.body) {
+              const removeFunction =
+                node.type === "FunctionDeclaration" &&
+                node.id?.name &&
+                removeFunctions.has(node.id.name);
+              const removeInterface =
+                node.type === "TSInterfaceDeclaration" && node.id.name === "NestedStateTrace";
+              if ((removeFunction || removeInterface) && typeof node.start === "number" && typeof node.end === "number") {
+                let end = node.end;
+                while (end < text.length && (text[end] === "\n" || text[end] === "\r")) end += 1;
+                spans.push([node.start, end]);
+              }
+            }
+            spans.sort((a, b) => b[0] - a[0]);
+            for (const [start, end] of spans) text = text.slice(0, start) + text.slice(end);
+
+            const runtimeImport = /import \{([\s\S]*?)\} from "\.\/runtime213\.js";/;
+            const match = text.match(runtimeImport);
+            if (!match) throw new Error(`runtime import not found in ${path}`);
+            const existing = match[1]
+              .split(",")
+              .map((item) => item.trim())
+              .filter(Boolean);
+            for (const name of ["callPath", "innerSwitchPath", "nestedStatesFromOuterTrace", "tailExpression"]) {
+              if (!existing.includes(name)) existing.push(name);
+            }
+            existing.sort((a, b) => a.localeCompare(b));
+            const rebuilt = `import {\n${existing.map((name) => `  ${name},`).join("\n")}\n} from "./runtime213.js";`;
+            text = text.replace(runtimeImport, rebuilt);
+
+            if (path.endsWith("body213.ts")) {
+              const before = "nestedStatesFromOuterTrace(model, wrapper, privateScope);";
+              if (!text.includes(before)) throw new Error("add3 trace call not found");
+              text = text.replace(before, "nestedStatesFromOuterTrace(model, wrapper, privateScope, 40);");
+            }
+
+            writeFileSync(path, text);
+          }
+
+          stripBody(`${dir}/body213.ts`, "callTargetPath");
+          stripBody(`${dir}/bodyTwice213.ts`, "callPath");
+          stripBody(`${dir}/bodyScenario213.ts`, "callPath");
+          JS
+      - name: Verify refactor
+        run: |
+          npm run typecheck
+          npm run build
+          npm test -- --run
+          git diff --check
+      - name: Commit refactor
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/passes/jsconfuser/cff/runtime213.ts src/passes/jsconfuser/cff/body213.ts src/passes/jsconfuser/cff/bodyTwice213.ts src/passes/jsconfuser/cff/bodyScenario213.ts
+          git commit -m "refactor: share nested 2.1.3 CFF tracer"
+          git push origin HEAD:refactor/jsconfuser-cff-trace213
