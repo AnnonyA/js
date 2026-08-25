@@ -10,6 +10,7 @@ it("keeps the 2.1.3 nested-state tracer centralized", () => {
   const runtime = readFileSync(resolve(cffDir, "runtime213.ts"), "utf8");
   const wrapperRuntime = readFileSync(resolve(cffDir, "wrapperRuntime213.ts"), "utf8");
 
+  // Low-level state execution stays in runtime213; wrapper discovery/tracing stays one layer above it.
   expect(runtime).toContain("export function traceInnerSwitchCases");
   for (const helper of [
     "callPath",
