@@ -1,3 +1,4 @@
+import type { TransformId } from "../fingerprint/transforms.js";
 import type { DecompilerContext } from "./context.js";
 
 export interface DetectionResult {
@@ -24,6 +25,7 @@ export interface VerificationResult {
 
 export interface ReversePass {
   id: string;
+  transformId?: TransformId;
   prerequisites: string[];
   conflicts: string[];
   capabilities: string[];
