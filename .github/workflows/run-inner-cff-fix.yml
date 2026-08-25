@@ -54,16 +54,29 @@ jobs:
           text = text.replace(old, new, 1)
           path.write_text(text)
           PY
+      - name: Give randomized stress an explicit timeout
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('test/transforms/control-flow-flattening-randomized.test.ts')
+          text = path.read_text()
+          suffix = '\n});\n'
+          if not text.endswith(suffix):
+            raise SystemExit('randomized test suffix changed')
+          path.write_text(text[:-len(suffix)] + '\n}, 15_000);\n')
+          PY
       - name: Verify deterministic regression
         run: npm test -- --run test/transforms/control-flow-flattening-regression.test.ts
       - run: npm run typecheck
       - run: npm run build
+      - name: Measure randomized stress
+        run: time npm test -- --run test/transforms/control-flow-flattening-randomized.test.ts
       - run: npm test -- --run
       - run: git diff --check
       - name: Commit verified fix
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/passes/jsconfuser/cff/runtime213.ts src/passes/jsconfuser/cff/bodyTwice213.ts
+          git add src/passes/jsconfuser/cff/runtime213.ts src/passes/jsconfuser/cff/bodyTwice213.ts test/transforms/control-flow-flattening-randomized.test.ts
           git commit -m "fix: trace inner CFF state per case"
           git push origin HEAD:feature/jsconfuser-cff-shared-wrapper-helpers
