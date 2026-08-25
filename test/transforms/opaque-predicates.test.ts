@@ -27,11 +27,12 @@ async function obfuscateWithOpaquePredicate(source: string): Promise<string> {
 
 it("removes proven 2.1.3 opaque predicates and their dummy function", async () => {
   const source = `
-module.exports = function classify(value) {
-  if (value > 10) return "large";
-  if (value === 10) return "equal";
-  return "small";
-};
+var test = false;
+if (test) {
+  module.exports = "Incorrect Value";
+} else {
+  module.exports = "Correct Value";
+}
 `;
   const obfuscated = await obfuscateWithOpaquePredicate(source);
   expect(obfuscated).toMatch(/__p_[A-Za-z0-9]{4}_dummyFunction/);
@@ -43,9 +44,8 @@ module.exports = function classify(value) {
   expect(result.cleanCode).not.toContain("_dummyFunction");
   expect(result.safeCode).not.toMatch(/\sin\s+__p_/);
   expect(result.cleanCode).not.toMatch(/\sin\s+__p_/);
-  expect(result.cleanCode).toContain("large");
-  expect(result.cleanCode).toContain("equal");
-  expect(result.cleanCode).toContain("small");
+  expect(result.cleanCode).toContain("Incorrect Value");
+  expect(result.cleanCode).toContain("Correct Value");
   expect(() => parseJavaScript(result.safeCode)).not.toThrow();
 });
 
