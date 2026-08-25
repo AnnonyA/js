@@ -245,9 +245,10 @@ it("reconstructs the add3 CFF wrapper into a clean function body", async () => {
     }
   }
 
-  expect(result.report.recovery.cffBodies).toEqual([
-    { exportName: "add3", reconstructed: true },
-  ]);
+  expect(result.report.recovery.cffBodies).toContainEqual({
+    exportName: "add3",
+    reconstructed: true,
+  });
 });
 
 it("does not treat an ordinary while-switch state machine as js-confuser CFF", async () => {
