@@ -17,6 +17,7 @@ import {
   pathsEqual,
   selectedCaseIndex,
   staticMemberPath,
+  traceInnerSwitchCases,
   visitNodes,
 } from "./runtime213.js";
 
@@ -288,92 +289,98 @@ function semanticBody(
     if (node.type !== "SwitchStatement" || node === model.switchStatement) return;
     const innerPath = innerSwitchPath(node, model);
     if (!innerPath) return;
-    const inner = { path: innerPath, states: nestedStates };
+    const traces = traceInnerSwitchCases(node, model, outerStates, innerPath, nestedStates);
+    if (!traces) return;
+
     const totals: TotalCandidate[] = [];
     const labels: LabelCandidate[] = [];
     const consoles: ConsoleCandidate[] = [];
     const returns: string[][] = [];
 
-    visitNodes(node, (candidate) => {
-      if (
-        candidate.type === "AssignmentExpression" &&
-        candidate.operator === "=" &&
-        candidate.left.type === "MemberExpression"
-      ) {
-        const targetPath = dynamicMemberPath(candidate.left, model, outerStates, inner);
-        if (!targetPath) return;
+    for (const trace of traces) {
+      const currentStates = trace.states;
+      const inner = { path: innerPath, states: currentStates };
+      visitNodes(t.blockStatement(trace.switchCase.consequent), (candidate) => {
+        if (
+candidate.type === "AssignmentExpression" &&
+candidate.operator === "=" &&
+candidate.left.type === "MemberExpression"
+        ) {
+const targetPath = dynamicMemberPath(candidate.left, model, outerStates, inner);
+if (!targetPath) return;
 
-        if (candidate.right.type === "BinaryExpression") {
-          const operands = flattenPlus(candidate.right);
-          if (operands?.length === 3) {
-            const parameterOrder = operands.map((operand) => {
-              const path = dynamicMemberPath(operand, model, outerStates, inner);
-              return path && path.length === 2 && path[0] === privateScope ? path[1]! : null;
-            });
-            if (parameterOrder.every((slot): slot is string => slot !== null)) {
-              totals.push({ targetPath, parameterOrder });
-            }
-          }
+if (candidate.right.type === "BinaryExpression") {
+  const operands = flattenPlus(candidate.right);
+  if (operands?.length === 3) {
+    const parameterOrder = operands.map((operand) => {
+      const path = dynamicMemberPath(operand, model, outerStates, inner);
+      return path && path.length === 2 && path[0] === privateScope ? path[1]! : null;
+    });
+    if (parameterOrder.every((slot): slot is string => slot !== null)) {
+      totals.push({ targetPath, parameterOrder });
+    }
+  }
+}
+
+if (
+  candidate.right.type === "ConditionalExpression" &&
+  candidate.right.test.type === "BinaryExpression" &&
+  candidate.right.test.operator === ">" &&
+  t.isExpression(candidate.right.test.left) &&
+  t.isExpression(candidate.right.test.right)
+) {
+  const totalPath = dynamicMemberPath(candidate.right.test.left, model, outerStates, inner);
+  const threshold = evaluateInner(
+    candidate.right.test.right,
+    model,
+    outerStates,
+    innerPath,
+    currentStates,
+  );
+  const consequent = candidate.right.consequent.type === "StringLiteral"
+    ? candidate.right.consequent.value
+    : decodeXor(candidate.right.consequent, model, outerStates, inner);
+  const alternate = candidate.right.alternate.type === "StringLiteral"
+    ? candidate.right.alternate.value
+    : decodeXor(candidate.right.alternate, model, outerStates, inner);
+  if (
+    totalPath &&
+    typeof threshold === "number" &&
+    consequent !== null &&
+    alternate !== null
+  ) {
+    labels.push({ targetPath, totalPath, threshold, consequent, alternate });
+  }
+}
         }
 
         if (
-          candidate.right.type === "ConditionalExpression" &&
-          candidate.right.test.type === "BinaryExpression" &&
-          candidate.right.test.operator === ">" &&
-          t.isExpression(candidate.right.test.left) &&
-          t.isExpression(candidate.right.test.right)
+candidate.type === "CallExpression" &&
+candidate.callee.type === "MemberExpression" &&
+candidate.callee.object.type === "Identifier" &&
+candidate.callee.object.name === "console" &&
+candidate.arguments.length >= 1 &&
+candidate.callee.property.type !== "PrivateName"
         ) {
-          const totalPath = dynamicMemberPath(candidate.right.test.left, model, outerStates, inner);
-          const threshold = evaluateInner(
-            candidate.right.test.right,
-            model,
-            outerStates,
-            innerPath,
-            nestedStates,
-          );
-          const consequent = candidate.right.consequent.type === "StringLiteral"
-            ? candidate.right.consequent.value
-            : decodeXor(candidate.right.consequent, model, outerStates, inner);
-          const alternate = candidate.right.alternate.type === "StringLiteral"
-            ? candidate.right.alternate.value
-            : decodeXor(candidate.right.alternate, model, outerStates, inner);
-          if (
-            totalPath &&
-            typeof threshold === "number" &&
-            consequent !== null &&
-            alternate !== null
-          ) {
-            labels.push({ targetPath, totalPath, threshold, consequent, alternate });
-          }
+const argument = candidate.arguments[0];
+if (!argument || argument.type === "SpreadElement") return;
+const argumentPath = dynamicMemberPath(argument, model, outerStates, inner);
+const property = !candidate.callee.computed && candidate.callee.property.type === "Identifier"
+  ? candidate.callee.property.name
+  : candidate.callee.computed && candidate.callee.property.type === "StringLiteral"
+    ? candidate.callee.property.value
+    : candidate.callee.computed
+      ? decodeXor(candidate.callee.property, model, outerStates, inner)
+      : null;
+if (argumentPath && property) consoles.push({ argumentPath, property });
         }
-      }
 
-      if (
-        candidate.type === "CallExpression" &&
-        candidate.callee.type === "MemberExpression" &&
-        candidate.callee.object.type === "Identifier" &&
-        candidate.callee.object.name === "console" &&
-        candidate.arguments.length >= 1 &&
-        candidate.callee.property.type !== "PrivateName"
-      ) {
-        const argument = candidate.arguments[0];
-        if (!argument || argument.type === "SpreadElement") return;
-        const argumentPath = dynamicMemberPath(argument, model, outerStates, inner);
-        const property = !candidate.callee.computed && candidate.callee.property.type === "Identifier"
-          ? candidate.callee.property.name
-          : candidate.callee.computed && candidate.callee.property.type === "StringLiteral"
-            ? candidate.callee.property.value
-            : candidate.callee.computed
-              ? decodeXor(candidate.callee.property, model, outerStates, inner)
-              : null;
-        if (argumentPath && property) consoles.push({ argumentPath, property });
-      }
-
-      if (candidate.type === "ReturnStatement" && candidate.argument && t.isExpression(candidate.argument)) {
-        const path = dynamicMemberPath(tailExpression(candidate.argument), model, outerStates, inner);
-        if (path) returns.push(path);
-      }
-    });
+        if (candidate.type === "ReturnStatement" && candidate.argument && t.isExpression(candidate.argument)) {
+const path = dynamicMemberPath(tailExpression(candidate.argument), model, outerStates, inner);
+if (path) returns.push(path);
+        }
+      });
+    }
 
     for (const total of totals) {
       for (const label of labels) {
@@ -382,11 +389,11 @@ function semanticBody(
         if (!console) continue;
         if (!returns.some((path) => pathsEqual(path, total.targetPath))) continue;
         matches.push({
-          parameterOrder: total.parameterOrder,
-          threshold: label.threshold,
-          consequent: label.consequent,
-          alternate: label.alternate,
-          consoleProperty: console.property,
+parameterOrder: total.parameterOrder,
+threshold: label.threshold,
+consequent: label.consequent,
+alternate: label.alternate,
+consoleProperty: console.property,
         });
       }
     }
