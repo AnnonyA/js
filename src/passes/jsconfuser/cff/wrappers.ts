@@ -18,6 +18,13 @@ interface ExportReference {
   scopePath: string[];
 }
 
+interface WrapperReportRecord {
+  exportName: string;
+  scopePath: string[];
+  stateCount: number;
+  entrySum: number;
+}
+
 function visitNodes(node: t.Node, callback: (node: t.Node) => void): void {
   callback(node);
   const record = node as unknown as Record<string, unknown>;
@@ -175,6 +182,87 @@ function findWrapperStates(
   return matches.length === 1 ? matches[0]! : null;
 }
 
+function modelKey(value: { exportName: string; scopePath: readonly string[] }): string {
+  return `${value.exportName}\u0000${value.scopePath.join("\u0000")}`;
+}
+
+function isWrapperModel(value: unknown): value is ExportedCffWrapperModel {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Partial<ExportedCffWrapperModel>;
+  return typeof record.exportName === "string" &&
+    Array.isArray(record.scopePath) &&
+    record.scopePath.every((part) => typeof part === "string") &&
+    Array.isArray(record.states) &&
+    record.states.every((part) => typeof part === "number") &&
+    typeof record.entrySum === "number";
+}
+
+function isWrapperReport(value: unknown): value is WrapperReportRecord {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Partial<WrapperReportRecord>;
+  return typeof record.exportName === "string" &&
+    Array.isArray(record.scopePath) &&
+    record.scopePath.every((part) => typeof part === "string") &&
+    typeof record.stateCount === "number" &&
+    typeof record.entrySum === "number";
+}
+
+function mergeModels(
+  previous: unknown,
+  current: readonly ExportedCffWrapperModel[],
+): ExportedCffWrapperModel[] {
+  const merged = new Map<string, ExportedCffWrapperModel>();
+  if (Array.isArray(previous)) {
+    for (const item of previous) {
+      if (isWrapperModel(item)) {
+        merged.set(modelKey(item), {
+          exportName: item.exportName,
+          scopePath: [...item.scopePath],
+          states: [...item.states],
+          entrySum: item.entrySum,
+        });
+      }
+    }
+  }
+  for (const item of current) {
+    merged.set(modelKey(item), {
+      exportName: item.exportName,
+      scopePath: [...item.scopePath],
+      states: [...item.states],
+      entrySum: item.entrySum,
+    });
+  }
+  return [...merged.values()];
+}
+
+function mergeReport(
+  previous: unknown,
+  current: readonly ExportedCffWrapperModel[],
+): WrapperReportRecord[] {
+  const merged = new Map<string, WrapperReportRecord>();
+  if (Array.isArray(previous)) {
+    for (const item of previous) {
+      if (isWrapperReport(item)) {
+        merged.set(modelKey(item), {
+          exportName: item.exportName,
+          scopePath: [...item.scopePath],
+          stateCount: item.stateCount,
+          entrySum: item.entrySum,
+        });
+      }
+    }
+  }
+  for (const item of current) {
+    merged.set(modelKey(item), {
+      exportName: item.exportName,
+      scopePath: [...item.scopePath],
+      stateCount: item.states.length,
+      entrySum: item.entrySum,
+    });
+  }
+  return [...merged.values()];
+}
+
 export function findExportedCffWrapperModels(
   ast: t.File,
 ): ExportedCffWrapperModel[] {
@@ -220,30 +308,20 @@ export function createCffWrapperModelPass(): ReversePass {
     },
     analyze(ctx) {
       const wrappers = findExportedCffWrapperModels(ctx.cleanAst);
+      const merged = mergeModels(ctx.facts.get("cff.exportedWrappers"), wrappers);
       return {
         changed: false,
-        facts: wrappers.length
-          ? {
-              "cff.exportedWrappers": wrappers.map((wrapper) => ({
-                exportName: wrapper.exportName,
-                scopePath: [...wrapper.scopePath],
-                states: [...wrapper.states],
-                entrySum: wrapper.entrySum,
-              })),
-            }
-          : {},
+        facts: merged.length ? { "cff.exportedWrappers": merged } : {},
       };
     },
     transform(ctx) {
       const wrappers = findExportedCffWrapperModels(ctx.cleanAst);
       if (wrappers.length === 0) return { changed: false };
 
-      ctx.report.recovery.cffWrappers = wrappers.map((wrapper) => ({
-        exportName: wrapper.exportName,
-        scopePath: [...wrapper.scopePath],
-        stateCount: wrapper.states.length,
-        entrySum: wrapper.entrySum,
-      }));
+      ctx.report.recovery.cffWrappers = mergeReport(
+        ctx.report.recovery.cffWrappers,
+        wrappers,
+      );
 
       return {
         changed: false,
