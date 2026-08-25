@@ -1,4 +1,5 @@
-import type { PassRegistry } from "../core/pass.js";
+import type { PassRegistry, ReversePass } from "../core/pass.js";
+import type { TransformId } from "../fingerprint/transforms.js";
 import { createConstantFoldPass } from "./generic/constantFold.js";
 import { createCalculator213Pass } from "./jsconfuser/calculator/v213.js";
 import { createCffBody213Pass } from "./jsconfuser/cff/body213.js";
@@ -11,22 +12,34 @@ import { createDispatcher213Pass } from "./jsconfuser/dispatcher/v213.js";
 import { createDuplicateLiterals213Pass } from "./jsconfuser/extraction/duplicateLiterals.js";
 import { createObjectExtraction213Pass } from "./jsconfuser/extraction/objectExtraction.js";
 import { createGlobalConcealing213Pass } from "./jsconfuser/globals/v213.js";
+import { createPack213Pass } from "./jsconfuser/pack/v213.js";
+import { createRgf213Pass } from "./jsconfuser/rgf/v213.js";
 import { createStringConcealing213Pass } from "./jsconfuser/strings/v213.js";
 import { createVariableMasking213Pass } from "./jsconfuser/variableMasking/v213.js";
 
+function registerTransformPass(
+  registry: PassRegistry,
+  pass: ReversePass,
+  transformId: TransformId,
+): void {
+  registry.register({ ...pass, transformId });
+}
+
 export function registerBuiltInPasses(registry: PassRegistry): void {
-  registry.register(createDuplicateLiterals213Pass());
-  registry.register(createStringConcealing213Pass());
-  registry.register(createGlobalConcealing213Pass());
-  registry.register(createObjectExtraction213Pass());
-  registry.register(createVariableMasking213Pass());
-  registry.register(createDispatcher213Pass());
-  registry.register(createControlFlowFlattening213Pass());
-  registry.register(createCffWrapperModelPass());
-  registry.register(createCffBody213Pass());
-  registry.register(createCffTwiceBody213Pass());
-  registry.register(createCffScenarioBody213Pass());
-  registry.register(createCffExportAliasesPass());
-  registry.register(createCalculator213Pass());
+  registerTransformPass(registry, createPack213Pass(), "pack");
+  registerTransformPass(registry, createDuplicateLiterals213Pass(), "duplicateLiteralsRemoval");
+  registerTransformPass(registry, createStringConcealing213Pass(), "stringConcealing");
+  registerTransformPass(registry, createRgf213Pass(), "rgf");
+  registerTransformPass(registry, createGlobalConcealing213Pass(), "globalConcealing");
+  registerTransformPass(registry, createObjectExtraction213Pass(), "objectExtraction");
+  registerTransformPass(registry, createVariableMasking213Pass(), "variableMasking");
+  registerTransformPass(registry, createDispatcher213Pass(), "dispatcher");
+  registerTransformPass(registry, createControlFlowFlattening213Pass(), "controlFlowFlattening");
+  registerTransformPass(registry, createCffWrapperModelPass(), "controlFlowFlattening");
+  registerTransformPass(registry, createCffBody213Pass(), "controlFlowFlattening");
+  registerTransformPass(registry, createCffTwiceBody213Pass(), "controlFlowFlattening");
+  registerTransformPass(registry, createCffScenarioBody213Pass(), "controlFlowFlattening");
+  registerTransformPass(registry, createCffExportAliasesPass(), "controlFlowFlattening");
+  registerTransformPass(registry, createCalculator213Pass(), "calculator");
   registry.register(createConstantFoldPass());
 }

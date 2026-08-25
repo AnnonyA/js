@@ -194,6 +194,20 @@ export function evaluateInner(
         : UNKNOWN;
     }
   }
+  if (
+    node.type === "CallExpression" &&
+    node.callee.type === "Identifier" &&
+    node.callee.name === model.sumName &&
+    node.arguments.length === 1
+  ) {
+    const argument = node.arguments[0];
+    if (argument && argument.type !== "SpreadElement" && t.isNode(argument)) {
+      const path = staticMemberPath(argument, model.scopeName);
+      if (path && pathsEqual(path, innerPath)) {
+        return innerStates.reduce((sum, value) => sum + value, 0);
+      }
+    }
+  }
   if (node.type === "UnaryExpression") {
     const value = evaluateInner(node.argument, model, outerStates, innerPath, innerStates);
     if (value === UNKNOWN) return UNKNOWN;
@@ -278,6 +292,233 @@ export function dynamicMemberPath(
         ? decodeXor(node.property, model, outerStates, inner)
         : null;
   return property === null ? null : [...parent, property];
+}
+
+export interface InnerSwitchCaseTrace {
+  switchCase: t.SwitchCase;
+  states: number[];
+}
+
+function innerStateIndex(
+  node: t.Node,
+  model: Cff213Model,
+  outerStates: readonly number[],
+  innerPath: readonly string[],
+  innerStates: readonly number[],
+): number | null {
+  if (node.type !== "MemberExpression" || !node.computed || node.property.type === "PrivateName") {
+    return null;
+  }
+  const path = staticMemberPath(node.object, model.scopeName);
+  if (!path || !pathsEqual(path, innerPath)) return null;
+  const value = evaluateInner(node.property, model, outerStates, innerPath, innerStates);
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value < innerStates.length
+    ? value
+    : null;
+}
+
+function applyInnerStateAssignment(
+  expression: t.AssignmentExpression,
+  model: Cff213Model,
+  outerStates: readonly number[],
+  innerPath: readonly string[],
+  innerStates: number[],
+): boolean {
+  const index = innerStateIndex(expression.left, model, outerStates, innerPath, innerStates);
+  if (index === null) return true;
+  const right = evaluateInner(expression.right, model, outerStates, innerPath, innerStates);
+  if (typeof right !== "number") return false;
+  const current = innerStates[index]!;
+  switch (expression.operator) {
+    case "=": innerStates[index] = right; break;
+    case "+=": innerStates[index] = current + right; break;
+    case "-=": innerStates[index] = current - right; break;
+    case "*=": innerStates[index] = current * right; break;
+    case "/=": innerStates[index] = current / right; break;
+    case "%=": innerStates[index] = current % right; break;
+    case "^=": innerStates[index] = current ^ right; break;
+    case "|=": innerStates[index] = current | right; break;
+    case "&=": innerStates[index] = current & right; break;
+    case "<<=": innerStates[index] = current << right; break;
+    case ">>=": innerStates[index] = current >> right; break;
+    case ">>>=": innerStates[index] = current >>> right; break;
+    default: return false;
+  }
+  return true;
+}
+
+export function applyInnerStateExpression(
+  expression: t.Expression,
+  model: Cff213Model,
+  outerStates: readonly number[],
+  innerPath: readonly string[],
+  innerStates: number[],
+): boolean {
+  if (expression.type === "SequenceExpression") {
+    for (const item of expression.expressions) {
+      if (!applyInnerStateExpression(item, model, outerStates, innerPath, innerStates)) return false;
+    }
+    return true;
+  }
+  if (expression.type === "AssignmentExpression") {
+    return applyInnerStateAssignment(expression, model, outerStates, innerPath, innerStates);
+  }
+  if (expression.type === "UpdateExpression") {
+    const index = innerStateIndex(expression.argument, model, outerStates, innerPath, innerStates);
+    if (index !== null) {
+      innerStates[index] = innerStates[index]! + (expression.operator === "++" ? 1 : -1);
+    }
+  }
+  return true;
+}
+
+export function selectedInnerCaseIndex(
+  switchStatement: t.SwitchStatement,
+  model: Cff213Model,
+  outerStates: readonly number[],
+  innerPath: readonly string[],
+  innerStates: readonly number[],
+): number | null {
+  const discriminant = evaluateInner(
+    switchStatement.discriminant,
+    model,
+    outerStates,
+    innerPath,
+    innerStates,
+  );
+  if (discriminant === UNKNOWN) return null;
+  let defaultIndex: number | null = null;
+  for (let index = 0; index < switchStatement.cases.length; index += 1) {
+    const switchCase = switchStatement.cases[index]!;
+    if (!switchCase.test) {
+      defaultIndex = index;
+      continue;
+    }
+    const test = evaluateInner(switchCase.test, model, outerStates, innerPath, innerStates);
+    if (test !== UNKNOWN && test === discriminant) return index;
+  }
+  return defaultIndex;
+}
+
+type InnerFlowControl = "continue" | "repeat" | "terminal";
+interface InnerFlowState {
+  states: number[];
+  control: InnerFlowControl;
+}
+
+function executeInnerStatements(
+  statements: readonly t.Statement[],
+  model: Cff213Model,
+  outerStates: readonly number[],
+  innerPath: readonly string[],
+  initialStates: readonly number[],
+): InnerFlowState[] | null {
+  let flows: InnerFlowState[] = [{ states: [...initialStates], control: "continue" }];
+  for (const statement of statements) {
+    const next: InnerFlowState[] = [];
+    for (const flow of flows) {
+      if (flow.control !== "continue") {
+        next.push(flow);
+        continue;
+      }
+      if (statement.type === "ExpressionStatement") {
+        const states = [...flow.states];
+        if (!applyInnerStateExpression(statement.expression, model, outerStates, innerPath, states)) return null;
+        next.push({ states, control: "continue" });
+        continue;
+      }
+      if (statement.type === "BreakStatement" || statement.type === "ContinueStatement") {
+        next.push({ states: [...flow.states], control: "repeat" });
+        continue;
+      }
+      if (statement.type === "ReturnStatement" || statement.type === "ThrowStatement") {
+        next.push({ states: [...flow.states], control: "terminal" });
+        continue;
+      }
+      if (statement.type === "BlockStatement") {
+        const nested = executeInnerStatements(statement.body, model, outerStates, innerPath, flow.states);
+        if (!nested) return null;
+        next.push(...nested);
+        continue;
+      }
+      if (statement.type === "IfStatement") {
+        const test = evaluateInner(statement.test, model, outerStates, innerPath, flow.states);
+        const branches: Array<t.Statement | null | undefined> = test === UNKNOWN
+? [statement.consequent, statement.alternate]
+: [test ? statement.consequent : statement.alternate];
+        for (const branch of branches) {
+if (!branch) {
+  next.push({ states: [...flow.states], control: "continue" });
+  continue;
+}
+const branchStatements = branch.type === "BlockStatement" ? branch.body : [branch];
+const nested = executeInnerStatements(branchStatements, model, outerStates, innerPath, flow.states);
+if (!nested) return null;
+next.push(...nested);
+        }
+        continue;
+      }
+      next.push({ states: [...flow.states], control: "continue" });
+    }
+    flows = next;
+  }
+  return flows;
+}
+
+export function traceInnerSwitchCases(
+  switchStatement: t.SwitchStatement,
+  model: Cff213Model,
+  outerStates: readonly number[],
+  innerPath: readonly string[],
+  initialInnerStates: readonly number[],
+  maxSteps = 96,
+): InnerSwitchCaseTrace[] | null {
+  const traces: InnerSwitchCaseTrace[] = [];
+  const queue: number[][] = [[...initialInnerStates]];
+  const seen = new Set<string>();
+
+  for (let step = 0; queue.length > 0 && step < maxSteps; step += 1) {
+    const states = queue.shift()!;
+    const signature = states.join(",");
+    if (seen.has(signature)) continue;
+    seen.add(signature);
+    const selected = selectedInnerCaseIndex(switchStatement, model, outerStates, innerPath, states);
+    if (selected === null) return null;
+
+    let active: InnerFlowState[] = [{ states: [...states], control: "continue" }];
+    for (let cursor = selected; cursor < switchStatement.cases.length; cursor += 1) {
+      const switchCase = switchStatement.cases[cursor]!;
+      for (const flow of active) {
+        if (flow.control === "continue") {
+traces.push({ switchCase, states: [...flow.states] });
+        }
+      }
+      const continued: InnerFlowState[] = [];
+      for (const flow of active) {
+        if (flow.control !== "continue") {
+continued.push(flow);
+continue;
+        }
+        const executed = executeInnerStatements(
+switchCase.consequent,
+model,
+outerStates,
+innerPath,
+flow.states,
+        );
+        if (!executed) return null;
+        continued.push(...executed);
+      }
+      for (const flow of continued) {
+        if (flow.control === "repeat") queue.push([...flow.states]);
+      }
+      active = continued.filter((flow) => flow.control === "continue");
+      if (active.length === 0) break;
+    }
+  }
+
+  if (queue.length > 0) return null;
+  return traces;
 }
 
 export function selectedCaseIndex(model: Cff213Model, states: readonly number[]): number | null {

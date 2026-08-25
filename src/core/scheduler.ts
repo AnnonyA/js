@@ -94,6 +94,16 @@ function recordPassError(
   ctx.report.warnings.push(diagnostic);
 }
 
+function recordTransformDetection(
+  ctx: DecompilerContext,
+  pass: ReversePass,
+  confidence: number,
+): void {
+  if (!pass.transformId) return;
+  const previous = ctx.report.transforms[pass.transformId] ?? 0;
+  ctx.report.transforms[pass.transformId] = Math.max(previous, confidence);
+}
+
 export async function runScheduler(
   ctx: DecompilerContext,
   registry: PassRegistry,
@@ -133,6 +143,7 @@ export async function runScheduler(
         const detection = await pass.detect(ctx);
         detection.confidence = clampConfidence(detection.confidence);
         if (!detection.detected) continue;
+        recordTransformDetection(ctx, pass, detection.confidence);
       } catch (error) {
         recordPassError(ctx, pass.id, "detect", error);
         continue;

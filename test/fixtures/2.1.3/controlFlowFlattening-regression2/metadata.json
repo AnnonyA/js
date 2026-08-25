@@ -1,0 +1,39 @@
+{
+  "attempt": 29,
+  "bodies": [],
+  "wrappers": [
+    {
+      "exportName": "add3",
+      "scopePath": [
+        "A41v61q",
+        "jsXwxV"
+      ],
+      "stateCount": 79,
+      "entrySum": -517
+    },
+    {
+      "exportName": "twice",
+      "scopePath": [
+        "A41v61q",
+        "PkfRii"
+      ],
+      "stateCount": 79,
+      "entrySum": -848
+    },
+    {
+      "exportName": "scenario",
+      "scopePath": [
+        "A41v61q",
+        "UVSXBhI"
+      ],
+      "stateCount": 79,
+      "entrySum": 58
+    }
+  ],
+  "recoveryKeys": [
+    "cffWrappers",
+    "cfg",
+    "strings"
+  ],
+  "warnings": []
+}

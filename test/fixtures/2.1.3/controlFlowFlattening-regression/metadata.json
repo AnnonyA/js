@@ -1,0 +1,35 @@
+{
+  "attempt": 4,
+  "bodies": [
+    "add3"
+  ],
+  "wrappers": [
+    {
+      "exportName": "add3",
+      "scopePath": [
+        "GKf0P6",
+        "gyuZZL"
+      ],
+      "stateCount": 87,
+      "entrySum": 504
+    },
+    {
+      "exportName": "twice",
+      "scopePath": [
+        "GKf0P6",
+        "ZaTihGV"
+      ],
+      "stateCount": 87,
+      "entrySum": 230
+    },
+    {
+      "exportName": "scenario",
+      "scopePath": [
+        "GKf0P6",
+        "velJhf"
+      ],
+      "stateCount": 87,
+      "entrySum": 577
+    }
+  ]
+}
