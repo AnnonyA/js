@@ -39,12 +39,12 @@ jobs:
           from pathlib import Path
           path = Path('src/passes/jsconfuser/cff/bodyTwice213.ts')
           text = path.read_text()
-          replacements = {
-            '    if (!traces) return;': '    if (!traces) { console.error("TRACE_NULL", innerPath); return; }\n    console.error("TRACE_COUNT", innerPath, traces.length);',
-            '            if (path && typeof right === "number") {': '            console.error("TRACE_RETURN", { innerPath, slot75: currentStates[75], right, operator: expression.operator, statesSum: currentStates.reduce((a, b) => a + b, 0) });\n            if (path && typeof right === "number") {',
-            '    if (callMatch && parityMatch && doubleReturn && plusReturn) matchedSwitches += 1;': '    console.error("TRACE_MATCH", { innerPath, callMatch, parityMatch, doubleReturn, plusReturn, returnCandidates });\n    if (callMatch && parityMatch && doubleReturn && plusReturn) matchedSwitches += 1;',
-          }
-          for old, new in replacements.items():
+          probes = [
+            ('if (!traces) return;', 'if (!traces) { console.error("TRACE_NULL", innerPath); return; }\n    console.error("TRACE_COUNT", innerPath, traces.length);'),
+            ('if (path && typeof right === "number") {', 'console.error("TRACE_RETURN", { innerPath, slot75: currentStates[75], right, operator: expression.operator, statesSum: currentStates.reduce((a, b) => a + b, 0) });\n            if (path && typeof right === "number") {'),
+            ('if (callMatch && parityMatch && doubleReturn && plusReturn) matchedSwitches += 1;', 'console.error("TRACE_MATCH", { innerPath, callMatch, parityMatch, doubleReturn, plusReturn, returnCandidates });\n    if (callMatch && parityMatch && doubleReturn && plusReturn) matchedSwitches += 1;'),
+          ]
+          for old, new in probes:
             if old not in text:
               raise SystemExit(f'missing target: {old}')
             text = text.replace(old, new, 1)
