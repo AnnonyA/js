@@ -1,0 +1,216 @@
+name: Fix case-sensitive add3 CFF semantics
+
+on:
+  push:
+    branches:
+      - feature/jsconfuser-cff-shared-wrapper-helpers
+    paths:
+      - .github/workflows/fix-add3-inner-cff-state.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/jsconfuser-cff-shared-wrapper-helpers
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+      - run: npm ci
+      - name: Make add3 semantics case-sensitive
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('src/passes/jsconfuser/cff/body213.ts')
+          text = path.read_text()
+
+          old_import = '  staticMemberPath,\n  visitNodes,\n} from "./runtime213.js";'
+          new_import = '  staticMemberPath,\n  traceInnerSwitchCases,\n  visitNodes,\n} from "./runtime213.js";'
+          if old_import not in text:
+            raise SystemExit('runtime import marker missing')
+          text = text.replace(old_import, new_import, 1)
+
+          start = text.index('function semanticBody(')
+          end = text.index('function findAdd3Pattern(', start)
+          replacement = r'''function semanticBody(
+  model: Cff213Model,
+  outerStates: readonly number[],
+  nestedStates: readonly number[],
+  privateScope: string,
+): {
+  parameterOrder: string[];
+  threshold: number;
+  consequent: string;
+  alternate: string;
+  consoleProperty: string;
+} | null {
+  type TotalCandidate = {
+    targetPath: string[];
+    parameterOrder: string[];
+  };
+  type LabelCandidate = {
+    targetPath: string[];
+    totalPath: string[];
+    threshold: number;
+    consequent: string;
+    alternate: string;
+  };
+  type ConsoleCandidate = {
+    argumentPath: string[];
+    property: string;
+  };
+
+  const matches: Array<{
+    parameterOrder: string[];
+    threshold: number;
+    consequent: string;
+    alternate: string;
+    consoleProperty: string;
+  }> = [];
+
+  visitNodes(model.switchStatement, (node) => {
+    if (node.type !== "SwitchStatement" || node === model.switchStatement) return;
+    const innerPath = innerSwitchPath(node, model);
+    if (!innerPath) return;
+    const traces = traceInnerSwitchCases(node, model, outerStates, innerPath, nestedStates);
+    if (!traces) return;
+
+    const totals: TotalCandidate[] = [];
+    const labels: LabelCandidate[] = [];
+    const consoles: ConsoleCandidate[] = [];
+    const returns: string[][] = [];
+
+    for (const trace of traces) {
+      const currentStates = trace.states;
+      const inner = { path: innerPath, states: currentStates };
+      visitNodes(t.blockStatement(trace.switchCase.consequent), (candidate) => {
+        if (
+          candidate.type === "AssignmentExpression" &&
+          candidate.operator === "=" &&
+          candidate.left.type === "MemberExpression"
+        ) {
+          const targetPath = dynamicMemberPath(candidate.left, model, outerStates, inner);
+          if (!targetPath) return;
+
+          if (candidate.right.type === "BinaryExpression") {
+            const operands = flattenPlus(candidate.right);
+            if (operands?.length === 3) {
+              const parameterOrder = operands.map((operand) => {
+                const path = dynamicMemberPath(operand, model, outerStates, inner);
+                return path && path.length === 2 && path[0] === privateScope ? path[1]! : null;
+              });
+              if (parameterOrder.every((slot): slot is string => slot !== null)) {
+                totals.push({ targetPath, parameterOrder });
+              }
+            }
+          }
+
+          if (
+            candidate.right.type === "ConditionalExpression" &&
+            candidate.right.test.type === "BinaryExpression" &&
+            candidate.right.test.operator === ">" &&
+            t.isExpression(candidate.right.test.left) &&
+            t.isExpression(candidate.right.test.right)
+          ) {
+            const totalPath = dynamicMemberPath(candidate.right.test.left, model, outerStates, inner);
+            const threshold = evaluateInner(
+              candidate.right.test.right,
+              model,
+              outerStates,
+              innerPath,
+              currentStates,
+            );
+            const consequent = candidate.right.consequent.type === "StringLiteral"
+              ? candidate.right.consequent.value
+              : decodeXor(candidate.right.consequent, model, outerStates, inner);
+            const alternate = candidate.right.alternate.type === "StringLiteral"
+              ? candidate.right.alternate.value
+              : decodeXor(candidate.right.alternate, model, outerStates, inner);
+            if (
+              totalPath &&
+              typeof threshold === "number" &&
+              consequent !== null &&
+              alternate !== null
+            ) {
+              labels.push({ targetPath, totalPath, threshold, consequent, alternate });
+            }
+          }
+        }
+
+        if (
+          candidate.type === "CallExpression" &&
+          candidate.callee.type === "MemberExpression" &&
+          candidate.callee.object.type === "Identifier" &&
+          candidate.callee.object.name === "console" &&
+          candidate.arguments.length >= 1 &&
+          candidate.callee.property.type !== "PrivateName"
+        ) {
+          const argument = candidate.arguments[0];
+          if (!argument || argument.type === "SpreadElement") return;
+          const argumentPath = dynamicMemberPath(argument, model, outerStates, inner);
+          const property = !candidate.callee.computed && candidate.callee.property.type === "Identifier"
+            ? candidate.callee.property.name
+            : candidate.callee.computed && candidate.callee.property.type === "StringLiteral"
+              ? candidate.callee.property.value
+              : candidate.callee.computed
+                ? decodeXor(candidate.callee.property, model, outerStates, inner)
+                : null;
+          if (argumentPath && property) consoles.push({ argumentPath, property });
+        }
+
+        if (candidate.type === "ReturnStatement" && candidate.argument && t.isExpression(candidate.argument)) {
+          const path = dynamicMemberPath(tailExpression(candidate.argument), model, outerStates, inner);
+          if (path) returns.push(path);
+        }
+      });
+    }
+
+    for (const total of totals) {
+      for (const label of labels) {
+        if (!pathsEqual(label.totalPath, total.targetPath)) continue;
+        const console = consoles.find((item) => pathsEqual(item.argumentPath, label.targetPath));
+        if (!console) continue;
+        if (!returns.some((path) => pathsEqual(path, total.targetPath))) continue;
+        matches.push({
+          parameterOrder: total.parameterOrder,
+          threshold: label.threshold,
+          consequent: label.consequent,
+          alternate: label.alternate,
+          consoleProperty: console.property,
+        });
+      }
+    }
+  });
+
+  const unique = new Map<string, (typeof matches)[number]>();
+  for (const match of matches) {
+    const key = JSON.stringify(match);
+    unique.set(key, match);
+  }
+  return unique.size === 1 ? [...unique.values()][0]! : null;
+}
+
+'''
+          text = text[:start] + replacement + text[end:]
+          path.write_text(text)
+          PY
+      - name: Verify second deterministic regression
+        run: npm test -- --run test/transforms/control-flow-flattening-regression2.test.ts
+      - name: Verify first deterministic regression
+        run: npm test -- --run test/transforms/control-flow-flattening-regression.test.ts
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test -- --run --testTimeout=15000
+      - run: git diff --check
+      - name: Commit verified add3 fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/passes/jsconfuser/cff/body213.ts
+          git commit -m "fix: evaluate add3 CFF semantics per case"
+          git push origin HEAD:feature/jsconfuser-cff-shared-wrapper-helpers
