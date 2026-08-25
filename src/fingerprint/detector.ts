@@ -1,5 +1,6 @@
 import type { DecompilerContext } from "../core/context.js";
 import { collectBabel213Evidence } from "./eras/babel213.js";
+import { hasLargeSignedNumericArray } from "./eras/signedNumericArrays.js";
 import { makeEvidence, scoreEvidence } from "./evidence.js";
 import type { FingerprintEvidence, FingerprintResult } from "./types.js";
 import { rankVersionCandidates, selectFamily } from "./versions.js";
@@ -35,6 +36,12 @@ function configEvidence(ctx: DecompilerContext): FingerprintEvidence[] {
 export function fingerprintProgram(ctx: DecompilerContext): FingerprintResult {
   const evidence = [
     ...collectBabel213Evidence(ctx.inputAst),
+    makeEvidence(
+      "cff.signedNumericStateArray",
+      1.3,
+      hasLargeSignedNumericArray(ctx.inputAst),
+      "large array is predominantly signed numeric state data",
+    ),
     ...configEvidence(ctx),
   ];
   const jsConfuserConfidence = scoreEvidence(evidence);
