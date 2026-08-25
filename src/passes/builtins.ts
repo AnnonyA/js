@@ -1,6 +1,7 @@
 import type { PassRegistry } from "../core/pass.js";
 import { createConstantFoldPass } from "./generic/constantFold.js";
 import { createCalculator213Pass } from "./jsconfuser/calculator/v213.js";
+import { createCffExportAliasesPass } from "./jsconfuser/cff/exportAliases.js";
 import { createControlFlowFlattening213Pass } from "./jsconfuser/cff/v213.js";
 import { createDispatcher213Pass } from "./jsconfuser/dispatcher/v213.js";
 import { createDuplicateLiterals213Pass } from "./jsconfuser/extraction/duplicateLiterals.js";
@@ -17,6 +18,7 @@ export function registerBuiltInPasses(registry: PassRegistry): void {
   registry.register(createVariableMasking213Pass());
   registry.register(createDispatcher213Pass());
   registry.register(createControlFlowFlattening213Pass());
+  registry.register(createCffExportAliasesPass());
   registry.register(createCalculator213Pass());
   registry.register(createConstantFoldPass());
 }
