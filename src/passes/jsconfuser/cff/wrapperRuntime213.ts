@@ -258,3 +258,7 @@ export function innerSwitchPath(node: t.SwitchStatement, model: Cff213Model): st
   const path = staticMemberPath(argument, model.scopeName);
   return path && path.length === 2 ? path : null;
 }
+
+export function tailExpression(node: t.Expression): t.Expression {
+  return node.type === "SequenceExpression" ? node.expressions.at(-1)! : node;
+}
