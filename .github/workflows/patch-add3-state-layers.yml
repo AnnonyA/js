@@ -1,0 +1,153 @@
+name: Patch add3 CFF state layers
+
+on:
+  push:
+    branches:
+      - feature/jsconfuser-decompiler-phase9-generalize
+    paths:
+      - .github/workflows/patch-add3-state-layers.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/jsconfuser-decompiler-phase9-generalize
+      - name: Preserve recursive and inner state vectors
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('src/passes/jsconfuser/cff/body213.ts')
+          text = path.read_text()
+
+          marker = 'interface Add3Pattern {'
+          pos = text.index(marker)
+          insert_at = text.index('\n}\n', pos) + 3
+          addition = '''\ninterface NestedStateTrace {\n  invocationStates: number[];\n  innerStates: number[];\n}\n'''
+          if 'interface NestedStateTrace {' not in text:
+              text = text[:insert_at] + addition + text[insert_at:]
+
+          start = text.index('function nestedStatesFromOuterTrace(')
+          end = text.index('function innerSwitchPath(', start)
+          replacement = r'''function recursiveHelperStates(
+            node: t.AssignmentExpression,
+            model: Cff213Model,
+            outerStates: readonly number[],
+            privateScope: string,
+          ): { path: string[]; states: number[] } | null {
+            if (
+              node.operator !== "=" ||
+              node.left.type !== "MemberExpression" ||
+              node.right.type !== "FunctionExpression"
+            ) return null;
+            const path = staticMemberPath(node.left, model.scopeName);
+            if (!path || path.length !== 2 || path[0] !== privateScope) return null;
+            const body = node.right.body.body;
+            if (body.length !== 1 || body[0]?.type !== "ReturnStatement") return null;
+            const call = body[0].argument;
+            if (
+              call?.type !== "CallExpression" ||
+              call.callee.type !== "Identifier" ||
+              call.callee.name !== model.mainName ||
+              call.arguments.length < 1
+            ) return null;
+            const first = call.arguments[0];
+            if (!first || first.type === "SpreadElement") return null;
+            const states = expandRuntimeStateArray(first, model, outerStates);
+            return states && states.length >= 75 ? { path, states } : null;
+          }
+
+          function nestedStatesFromOuterTrace(
+            model: Cff213Model,
+            wrapper: ExportedCffWrapperModel,
+            privateScope: string,
+          ): NestedStateTrace | null {
+            const states = [...wrapper.states];
+            const seen = new Set<string>();
+            const helperStates = new Map<string, number[]>();
+            for (let step = 0; step < 40; step += 1) {
+              const signature = states.join(",");
+              if (seen.has(signature)) return null;
+              seen.add(signature);
+              const selected = selectedCaseIndex(model, states);
+              if (selected === null) return null;
+              let repeated = false;
+              for (let cursor = selected; cursor < model.switchStatement.cases.length; cursor += 1) {
+                const current = model.switchStatement.cases[cursor]!;
+
+                visitNodes(t.blockStatement(current.consequent), (node) => {
+                  if (node.type !== "AssignmentExpression") return;
+                  const helper = recursiveHelperStates(node, model, states, privateScope);
+                  if (helper) helperStates.set(helper.path.join("\u0000"), helper.states);
+                });
+
+                let nested: NestedStateTrace | null = null;
+                visitNodes(t.blockStatement(current.consequent), (node) => {
+                  if (nested || node.type !== "CallExpression" || node.arguments.length < 1) return;
+                  const target = callTargetPath(node, model, states);
+                  if (!target || target.length !== 2 || target[0] !== privateScope) return;
+                  const invocationStates = helperStates.get(target.join("\u0000"));
+                  if (!invocationStates) return;
+                  const first = node.arguments[0];
+                  if (!first || first.type === "SpreadElement") return;
+                  const innerStates = expandRuntimeStateArray(first, model, states);
+                  if (innerStates && innerStates.length >= 75) {
+                    nested = {
+                      invocationStates: [...invocationStates],
+                      innerStates,
+                    };
+                  }
+                });
+                if (nested) return nested;
+
+                for (const statement of current.consequent) {
+                  if (statement.type === "ExpressionStatement") {
+                    if (!applyStateExpression(statement.expression, model, states)) return null;
+                  } else if (statement.type === "BreakStatement") {
+                    repeated = true;
+                    break;
+                  } else if (statement.type === "IfStatement") {
+                    const test = evaluateOuter(statement.test, model, states);
+                    if (test === UNKNOWN) return null;
+                    const branch = test ? statement.consequent : statement.alternate;
+                    if (branch?.type === "BlockStatement") {
+                      for (const inner of branch.body) {
+                        if (inner.type === "ExpressionStatement") {
+                          if (!applyStateExpression(inner.expression, model, states)) return null;
+                        } else if (inner.type === "BreakStatement") {
+                          repeated = true;
+                          break;
+                        }
+                      }
+                    }
+                  }
+                  if (repeated) break;
+                }
+                if (repeated) break;
+              }
+              if (!repeated) return null;
+            }
+            return null;
+          }
+
+          '''
+          text = text[:start] + replacement + text[end:]
+
+          old = '''  const nestedStates = nestedStatesFromOuterTrace(model, wrapper, privateScope);\n  if (!nestedStates) return null;\n  const body = semanticBody(model, wrapper.states, nestedStates, privateScope);'''
+          new = '''  const nested = nestedStatesFromOuterTrace(model, wrapper, privateScope);\n  if (!nested) return null;\n  const body = semanticBody(model, nested.invocationStates, nested.innerStates, privateScope);'''
+          if text.count(old) != 1:
+              raise SystemExit('expected one add3 nested-state call site')
+          text = text.replace(old, new)
+          path.write_text(text)
+          PY
+      - name: Commit exact patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/passes/jsconfuser/cff/body213.ts
+          git commit -m "fix: preserve recursive add3 CFF state"
+          git push origin HEAD:feature/jsconfuser-decompiler-phase9-generalize
