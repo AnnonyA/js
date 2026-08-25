@@ -1,0 +1,50 @@
+name: Patch CFF entry sums
+
+on:
+  push:
+    branches:
+      - feature/jsconfuser-decompiler-phase9-generalize
+    paths:
+      - .github/workflows/patch-cff-entry-sums.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/jsconfuser-decompiler-phase9-generalize
+      - name: Remove golden entry-sum gates
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          replacements = {
+              Path('src/passes/jsconfuser/cff/body213.ts'): (
+                  'if (!wrapper || wrapper.entrySum !== -750) return null;',
+                  'if (!wrapper) return null;',
+              ),
+              Path('src/passes/jsconfuser/cff/bodyTwice213.ts'): (
+                  'if (!wrapper || !add3 || wrapper.entrySum !== -857) return null;',
+                  'if (!wrapper || !add3) return null;',
+              ),
+              Path('src/passes/jsconfuser/cff/bodyScenario213.ts'): (
+                  'if (!wrapper || !twice || wrapper.entrySum !== -23) return null;',
+                  'if (!wrapper || !twice) return null;',
+              ),
+          }
+          for path, (old, new) in replacements.items():
+              text = path.read_text()
+              if text.count(old) != 1:
+                  raise SystemExit(f'{path}: expected exactly one entry-sum gate')
+              path.write_text(text.replace(old, new))
+          PY
+      - name: Commit exact patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/passes/jsconfuser/cff/body213.ts src/passes/jsconfuser/cff/bodyTwice213.ts src/passes/jsconfuser/cff/bodyScenario213.ts
+          git commit -m "fix: remove golden CFF entry-sum gates"
+          git push origin HEAD:feature/jsconfuser-decompiler-phase9-generalize
