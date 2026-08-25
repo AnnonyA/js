@@ -74,7 +74,10 @@ it("reconstructs the exported twice CFF wrapper into a clean branch", async () =
   const fn = assignedFunction(parseJavaScript(result.cleanCode), property);
   expect(fn).not.toBeNull();
   expect(fn?.params).toHaveLength(1);
-  expect(fn?.params[0]?.type).toBe("Identifier");
+  expect(
+    fn?.params[0]?.type,
+    JSON.stringify({ recovery: result.report.recovery, warnings: result.report.warnings }, null, 2),
+  ).toBe("Identifier");
   expect(containsIdentifier(fn!, "__p_WW9X_4_main")).toBe(false);
 
   const body = fn!.body.body;
