@@ -12,6 +12,7 @@ import { createDispatcher213Pass } from "./jsconfuser/dispatcher/v213.js";
 import { createDuplicateLiterals213Pass } from "./jsconfuser/extraction/duplicateLiterals.js";
 import { createObjectExtraction213Pass } from "./jsconfuser/extraction/objectExtraction.js";
 import { createGlobalConcealing213Pass } from "./jsconfuser/globals/v213.js";
+import { createOpaquePredicates213Pass } from "./jsconfuser/opaquePredicates/v213.js";
 import { createPack213Pass } from "./jsconfuser/pack/v213.js";
 import { createRgf213Pass } from "./jsconfuser/rgf/v213.js";
 import { createStringSplitting213Pass } from "./jsconfuser/strings/splitting213.js";
@@ -42,6 +43,7 @@ export function registerBuiltInPasses(registry: PassRegistry): void {
   registerTransformPass(registry, createCffTwiceBody213Pass(), "controlFlowFlattening");
   registerTransformPass(registry, createCffScenarioBody213Pass(), "controlFlowFlattening");
   registerTransformPass(registry, createCffExportAliasesPass(), "controlFlowFlattening");
+  registerTransformPass(registry, createOpaquePredicates213Pass(), "opaquePredicates");
   registerTransformPass(registry, createCalculator213Pass(), "calculator");
   registry.register(createConstantFoldPass());
 }
