@@ -36,11 +36,10 @@ jobs:
               ],
               interfaces: ['NestedStateTrace'],
               imports: [
-                'callPath', 'findWrapperAssignment', 'innerSwitchPath',
+                'findWrapperAssignment', 'innerSwitchPath',
                 'traceNestedStateInvocation', 'wrapperPrivateScope',
               ],
               replacements: [
-                ['callTargetPath(', 'callPath('],
                 ['nestedStatesFromOuterTrace(model, wrapper, privateScope)', 'traceNestedStateInvocation(model, wrapper, privateScope, 40)'],
               ],
             },
