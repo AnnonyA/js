@@ -1,0 +1,118 @@
+name: Refactor shared CFF runtime
+
+on:
+  push:
+    branches:
+      - feature/jsconfuser-cff-shared-runtime
+    paths:
+      - .github/workflows/refactor-cff-runtime.yml
+
+permissions:
+  contents: write
+
+jobs:
+  refactor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/jsconfuser-cff-shared-runtime
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+      - run: npm ci
+      - name: Migrate CFF body passes to runtime213
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const ts = require('typescript');
+
+          const files = [
+            'src/passes/jsconfuser/cff/body213.ts',
+            'src/passes/jsconfuser/cff/bodyTwice213.ts',
+            'src/passes/jsconfuser/cff/bodyScenario213.ts',
+          ];
+          const sharedFunctions = new Set([
+            'visitNodes',
+            'pathsEqual',
+            'staticMemberPath',
+            'stateIndex',
+            'evaluateBinary',
+            'evaluateOuter',
+            'evaluateInner',
+            'decodeXor',
+            'dynamicMemberPath',
+            'selectedCaseIndex',
+            'applyStateAssignment',
+            'applyStateExpression',
+            'expandRuntimeStateArray',
+          ]);
+          const importBlock = `import {\n  UNKNOWN,\n  applyStateExpression,\n  decodeXor,\n  dynamicMemberPath,\n  evaluateInner,\n  evaluateOuter,\n  expandRuntimeStateArray,\n  pathsEqual,\n  selectedCaseIndex,\n  staticMemberPath,\n  visitNodes,\n} from "./runtime213.js";\n`;
+
+          for (const file of files) {
+            let text = fs.readFileSync(file, 'utf8');
+            const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+            const removals = [];
+            let lastImportEnd = 0;
+
+            for (const statement of source.statements) {
+              if (ts.isImportDeclaration(statement)) {
+                lastImportEnd = statement.end;
+                continue;
+              }
+              if (
+                ts.isFunctionDeclaration(statement) &&
+                statement.name &&
+                sharedFunctions.has(statement.name.text)
+              ) {
+                removals.push([statement.getFullStart(), statement.end]);
+                continue;
+              }
+              if (ts.isTypeAliasDeclaration(statement) && statement.name.text === 'Value') {
+                removals.push([statement.getFullStart(), statement.end]);
+                continue;
+              }
+              if (ts.isVariableStatement(statement)) {
+                const names = statement.declarationList.declarations.map((decl) =>
+                  ts.isIdentifier(decl.name) ? decl.name.text : null,
+                );
+                if (names.includes('UNKNOWN')) {
+                  removals.push([statement.getFullStart(), statement.end]);
+                }
+              }
+            }
+
+            if (removals.length < 10) {
+              throw new Error(`${file}: expected shared helper duplication, found only ${removals.length} removable declarations`);
+            }
+
+            removals.sort((a, b) => b[0] - a[0]);
+            for (const [start, end] of removals) {
+              text = text.slice(0, start) + text.slice(end);
+            }
+
+            const reparsed = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+            let insertAt = 0;
+            for (const statement of reparsed.statements) {
+              if (ts.isImportDeclaration(statement)) insertAt = statement.end;
+              else break;
+            }
+            if (!text.includes('from "./runtime213.js"')) {
+              text = text.slice(0, insertAt) + '\n' + importBlock + text.slice(insertAt);
+            }
+            text = text.replace(/\n{3,}/g, '\n\n');
+            fs.writeFileSync(file, text.endsWith('\n') ? text : text + '\n');
+          }
+          NODE
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test -- --run
+      - run: git diff --check
+      - name: Commit refactor
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/passes/jsconfuser/cff/body213.ts src/passes/jsconfuser/cff/bodyTwice213.ts src/passes/jsconfuser/cff/bodyScenario213.ts
+          git commit -m "refactor: share 2.1.3 CFF runtime helpers"
+          git push origin HEAD:feature/jsconfuser-cff-shared-runtime
