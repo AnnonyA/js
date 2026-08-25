@@ -1,0 +1,9 @@
+{
+  "target": "node",
+  "compact": true,
+  "preset": false,
+  "renameLabels": false,
+  "renameGlobals": false,
+  "preserveFunctionLength": false,
+  "controlFlowFlattening": true
+}
