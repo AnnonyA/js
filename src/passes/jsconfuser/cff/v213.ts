@@ -206,7 +206,7 @@ function evalPrimitive(
 }
 
 function stateIndex(
-  node: t.LVal,
+  node: t.LVal | t.OptionalMemberExpression,
   model: Cff213Model,
   states: readonly number[],
 ): number | null {
