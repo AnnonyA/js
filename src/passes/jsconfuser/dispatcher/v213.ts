@@ -68,6 +68,13 @@ function invocationFromNode(
   ) {
     return null;
   }
+  if (
+    !wrapped &&
+    model.returnObjectFlag &&
+    returnFlag === model.returnObjectFlag
+  ) {
+    return null;
+  }
 
   return {
     selector,
