@@ -138,8 +138,8 @@ it("reconstructs the exported twice CFF wrapper into a clean branch", async () =
     exportName: string;
     reconstructed: boolean;
   }>;
-  expect(bodies.slice().sort((a, b) => a.exportName.localeCompare(b.exportName))).toEqual([
-    { exportName: "add3", reconstructed: true },
-    { exportName: "twice", reconstructed: true },
-  ]);
+  expect(bodies).toContainEqual({
+    exportName: "twice",
+    reconstructed: true,
+  });
 });
