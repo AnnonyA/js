@@ -1,0 +1,28 @@
+name: Pack TDD
+
+on:
+  push:
+    branches:
+      - feature/jsconfuser-cff-shared-wrapper-helpers
+    paths:
+      - .github/workflows/pack-tdd.yml
+      - test/transforms/pack.test.ts
+      - src/passes/jsconfuser/pack/**
+      - src/passes/builtins.ts
+
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/jsconfuser-cff-shared-wrapper-helpers
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+      - run: npm ci
+      - run: npm test -- --run test/transforms/pack.test.ts
+      - run: npm run typecheck
+      - run: npm run build
+      - run: git diff --check
