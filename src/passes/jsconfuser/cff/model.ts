@@ -10,6 +10,7 @@ export interface Cff213Model {
   sliceName: string;
   mainName: string;
   statesName: string;
+  scopeName: string;
   switchStatement: t.SwitchStatement;
   entryStates: number[];
 }
@@ -94,7 +95,7 @@ function findSequenceAndStrings(ast: t.File): {
   return { sequenceName, sequence, stringsName, stringsValue };
 }
 
-function expandStateArray(
+export function expandCffStateArray(
   node: t.Node | null | undefined,
   sequence: readonly number[],
   sliceName: string,
@@ -195,8 +196,19 @@ function findEntryStates(
     }
     const first = expression.arguments[0];
     if (!first || first.type === "SpreadElement") continue;
-    const values = expandStateArray(first, sequence, sliceName);
+    const values = expandCffStateArray(first, sequence, sliceName);
     if (values && values.length >= 75) return values;
+  }
+  return null;
+}
+
+function parameterIdentifier(parameter: t.FunctionDeclaration["params"][number] | undefined): t.Identifier | null {
+  if (parameter?.type === "Identifier") return parameter;
+  if (
+    parameter?.type === "AssignmentPattern" &&
+    parameter.left.type === "Identifier"
+  ) {
+    return parameter.left;
   }
   return null;
 }
@@ -219,8 +231,9 @@ export function findCff213Models(ast: t.File): Cff213Model[] {
     ) {
       continue;
     }
-    const states = statement.params[0];
-    if (states?.type !== "Identifier") continue;
+    const states = parameterIdentifier(statement.params[0]);
+    const scope = parameterIdentifier(statement.params[1]);
+    if (!states || !scope) continue;
     const switchStatement = findSwitch(statement, sum.id.name, states.name);
     if (!switchStatement) continue;
     const entryStates = findEntryStates(
@@ -238,6 +251,7 @@ export function findCff213Models(ast: t.File): Cff213Model[] {
       sliceName: slice.id.name,
       mainName: statement.id.name,
       statesName: states.name,
+      scopeName: scope.name,
       switchStatement,
       entryStates,
     });

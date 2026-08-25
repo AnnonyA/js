@@ -125,6 +125,39 @@ it("also treats dot-notation module.exports objects as ambiguous", async () => {
   expect(Object.fromEntries(aliases)).toEqual({});
 });
 
+it("models exported CFF wrapper entry states for later body reconstruction", async () => {
+  const result = await decompile(cffFixture());
+  const wrappers = result.report.recovery.cffWrappers as
+    | Array<{
+        exportName: string;
+        scopePath: string[];
+        stateCount: number;
+        entrySum: number;
+      }>
+    | undefined;
+
+  expect(wrappers?.slice().sort((a, b) => a.exportName.localeCompare(b.exportName))).toEqual([
+    {
+      exportName: "add3",
+      scopePath: ["UCRrU7U", "cFzWIDm"],
+      stateCount: 90,
+      entrySum: -750,
+    },
+    {
+      exportName: "scenario",
+      scopePath: ["UCRrU7U", "xfaMJIM"],
+      stateCount: 90,
+      entrySum: -23,
+    },
+    {
+      exportName: "twice",
+      scopePath: ["UCRrU7U", "DrKyAW"],
+      stateCount: 90,
+      entrySum: -857,
+    },
+  ]);
+});
+
 it("does not treat an ordinary while-switch state machine as js-confuser CFF", async () => {
   const source = `
 let state = 0;
