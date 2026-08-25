@@ -1,4 +1,4 @@
-name: Stress fixed CFF randomizations
+name: Stress CFF after add3 case-state fix
 
 on:
   push:
@@ -19,9 +19,9 @@ jobs:
           node-version: 22.12.0
           cache: npm
       - run: npm ci
-      - name: Run randomized CFF test repeatedly on fixed tracer
+      - name: Run 30 fresh CFF samples after both case-state fixes
         run: |
           for i in $(seq 1 10); do
-            echo "=== fixed randomized run $i/10 ==="
+            echo "=== post-add3 randomized run $i/10 ==="
             time npm test -- --run test/transforms/control-flow-flattening-randomized.test.ts --testTimeout=15000
           done
