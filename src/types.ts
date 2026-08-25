@@ -34,6 +34,34 @@ export interface DecompileOptions {
   };
 }
 
+export interface ResolvedDecompileOptions {
+  target: Target;
+  dynamic: DynamicMode;
+  config?: JsConfuserOptions;
+  output: {
+    safe: boolean;
+    clean: boolean;
+    report: boolean;
+  };
+  confidence: {
+    safeThreshold: number;
+    cleanThreshold: number;
+  };
+  limits: {
+    timeoutMs: number;
+    memoryMb: number;
+    maxExecutions: number;
+    maxGeneratedCodeDepth: number;
+    maxCfgNodes: number;
+    maxSymbolicBranches: number;
+    maxRounds: number;
+  };
+  tracing: {
+    enabled: boolean;
+    level: 0 | 1 | 2 | 3;
+  };
+}
+
 export type NamingOrigin = "recovered" | "inferred" | "synthetic" | "unknown";
 
 export interface NamingRecord {
