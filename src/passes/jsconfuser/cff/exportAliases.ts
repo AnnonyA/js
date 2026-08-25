@@ -43,6 +43,16 @@ function isFinalMainEntry(ast: t.File, mainName: string): boolean {
   );
 }
 
+function isModuleExportsMember(node: t.MemberExpression): boolean {
+  if (node.object.type !== "Identifier" || node.object.name !== "module") {
+    return false;
+  }
+  if (node.computed) {
+    return node.property.type === "StringLiteral" && node.property.value === "exports";
+  }
+  return node.property.type === "Identifier" && node.property.name === "exports";
+}
+
 function decodedExportNames(ast: t.File): string[] | null {
   const candidates: string[][] = [];
 
@@ -51,11 +61,7 @@ function decodedExportNames(ast: t.File): string[] | null {
       node.type !== "AssignmentExpression" ||
       node.operator !== "=" ||
       node.left.type !== "MemberExpression" ||
-      node.left.object.type !== "Identifier" ||
-      node.left.object.name !== "module" ||
-      !node.left.computed ||
-      node.left.property.type !== "StringLiteral" ||
-      node.left.property.value !== "exports" ||
+      !isModuleExportsMember(node.left) ||
       node.right.type !== "ObjectExpression"
     ) {
       return;
@@ -171,7 +177,7 @@ export function createCffExportAliasesPass(): ReversePass {
           confidence: 0.995,
           evidence: [
             "CFF entry invocation is the final original top-level statement",
-            "exactly one decoded module.exports object is present",
+            "exactly one decoded module.exports object is present across bracket and dot notation",
             "aliases preserve the exact module.exports property values without wrapping",
             "candidate names do not appear as identifiers anywhere in the transformed AST",
           ],
