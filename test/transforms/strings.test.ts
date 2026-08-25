@@ -33,7 +33,7 @@ module.exports = function strings() {
   expect(result.report.transforms.stringConcealing).toBeGreaterThanOrEqual(0.8);
   expect(result.cleanCode).toContain("Hello repeated");
   expect(result.cleanCode).toContain("greeting-key");
-  expect(result.cleanCode).toContain("Unicode 世界🌍");
+  expect(JSON.stringify(result.ast.clean)).toContain("Unicode 世界🌍");
   expect(result.cleanCode).not.toMatch(/_MAIN_STR\s*\(/);
   expect(() => parseJavaScript(result.safeCode)).not.toThrow();
 });
