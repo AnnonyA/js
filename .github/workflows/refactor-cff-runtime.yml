@@ -26,7 +26,8 @@ jobs:
         run: |
           node <<'NODE'
           const fs = require('node:fs');
-          const ts = require('typescript');
+          const tsModule = require('typescript');
+          const ts = tsModule.default ?? tsModule;
 
           const files = [
             'src/passes/jsconfuser/cff/body213.ts',
@@ -54,13 +55,8 @@ jobs:
             let text = fs.readFileSync(file, 'utf8');
             const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
             const removals = [];
-            let lastImportEnd = 0;
 
             for (const statement of source.statements) {
-              if (ts.isImportDeclaration(statement)) {
-                lastImportEnd = statement.end;
-                continue;
-              }
               if (
                 ts.isFunctionDeclaration(statement) &&
                 statement.name &&
