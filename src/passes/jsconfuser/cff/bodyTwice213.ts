@@ -725,7 +725,7 @@ function findTwicePattern(ctx: DecompilerContext, ast: t.File): TwicePattern | n
   const wrappers = wrapperModels(ctx);
   const wrapper = wrappers.find((item) => item.exportName === "twice");
   const add3 = wrappers.find((item) => item.exportName === "add3");
-  if (!wrapper || !add3 || wrapper.entrySum !== -857) return null;
+  if (!wrapper || !add3) return null;
   const wrapperAssignment = findWrapperAssignment(ast, model, wrapper);
   if (!wrapperAssignment) return null;
   const privateScope = wrapperPrivateScope(wrapperAssignment, model);
