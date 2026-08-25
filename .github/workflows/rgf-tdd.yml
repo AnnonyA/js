@@ -1,0 +1,30 @@
+name: RGF TDD
+
+on:
+  push:
+    branches:
+      - feature/jsconfuser-cff-shared-wrapper-helpers
+    paths:
+      - .github/workflows/rgf-tdd.yml
+      - test/transforms/rgf.test.ts
+      - src/passes/jsconfuser/rgf/**
+      - src/passes/builtins.ts
+      - src/fingerprint/detectors/rgf.ts
+      - src/fingerprint/transforms.ts
+
+jobs:
+  rgf:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/jsconfuser-cff-shared-wrapper-helpers
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+      - run: npm ci
+      - run: npm test -- --run test/transforms/rgf.test.ts
+      - run: npm run typecheck
+      - run: npm run build
+      - run: git diff --check
