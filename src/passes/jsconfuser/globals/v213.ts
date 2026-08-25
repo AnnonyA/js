@@ -155,18 +155,19 @@ export function createGlobalConcealing213Pass(): ReversePass {
         },
       );
 
+      const safeResult = safeStats as RecoveryStats | null;
+      const cleanResult = cleanStats as RecoveryStats | null;
       const safeChanged =
-        safeTransaction.committed && Boolean(safeStats?.replacements);
+        safeTransaction.committed && Boolean(safeResult?.replacements);
       const cleanChanged =
-        cleanTransaction.committed && Boolean(cleanStats?.replacements);
-      const stats = cleanStats;
+        cleanTransaction.committed && Boolean(cleanResult?.replacements);
       return {
         changed: safeChanged || cleanChanged,
-        actions: stats
+        actions: cleanResult
           ? [
-              `restored ${stats.replacements} concealed global references`,
-              `removed ${stats.helpersRemoved} mapping helpers`,
-              `removed ${stats.scaffoldingRemoved} global resolver scaffolding statements`,
+              `restored ${cleanResult.replacements} concealed global references`,
+              `removed ${cleanResult.helpersRemoved} mapping helpers`,
+              `removed ${cleanResult.scaffoldingRemoved} global resolver scaffolding statements`,
             ]
           : [],
       };
