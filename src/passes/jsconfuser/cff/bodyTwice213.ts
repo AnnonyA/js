@@ -578,8 +578,11 @@ function findTwiceSemanticSwitch(
     let resultPath: string[] | null = null;
     let callMatch = false;
     let parityMatch = false;
-    let doubleReturn = false;
-    let plusReturn = false;
+    const returnCandidates: Array<{
+      path: string[];
+      operator: "*" | "+";
+      right: number;
+    }> = [];
 
     visitNodes(node, (candidate) => {
       if (
@@ -636,18 +639,31 @@ function findTwiceSemanticSwitch(
         const expression = tailExpression(candidate.argument);
         if (
           expression.type === "BinaryExpression" &&
+          (expression.operator === "*" || expression.operator === "+") &&
           t.isExpression(expression.left) &&
           t.isExpression(expression.right)
         ) {
           const path = dynamicMemberPath(expression.left, model, wrapper.states, inner);
           const right = evaluateInner(expression.right, model, wrapper.states, innerPath, nestedStates);
-          if (path && resultPath && pathsEqual(path, resultPath)) {
-            if (expression.operator === "*" && right === 2) doubleReturn = true;
-            if (expression.operator === "+" && right === 1) plusReturn = true;
+          if (path && typeof right === "number") {
+            returnCandidates.push({ path, operator: expression.operator, right });
           }
         }
       }
     });
+
+    const doubleReturn = Boolean(resultPath) && returnCandidates.some(
+      (candidate) =>
+        candidate.operator === "*" &&
+        candidate.right === 2 &&
+        pathsEqual(candidate.path, resultPath!),
+    );
+    const plusReturn = Boolean(resultPath) && returnCandidates.some(
+      (candidate) =>
+        candidate.operator === "+" &&
+        candidate.right === 1 &&
+        pathsEqual(candidate.path, resultPath!),
+    );
 
     if (callMatch && parityMatch && doubleReturn && plusReturn) matchedSwitches += 1;
   });
@@ -785,7 +801,7 @@ export function createCffTwiceBody213Pass(): ReversePass {
           evidence: [
             "wrapper entry and private argument slot are linked statically",
             "nested generated state vector is expanded without executing input code",
-            "add3 call target/arguments, modulo branch, and both return expressions agree structurally",
+            "add3 call target/arguments, modulo branch, and both return expressions agree structurally independent of shuffled switch-case order",
           ],
         },
         (candidate) => {
