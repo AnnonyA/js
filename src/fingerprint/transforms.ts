@@ -1,4 +1,5 @@
 import type { DecompilerContext } from "../core/context.js";
+import { detectCalculator } from "./detectors/calculator.js";
 import { detectStringConcealing } from "./detectors/stringConcealing.js";
 import {
   detectControlFlowFlattening,
@@ -40,7 +41,7 @@ export function detectTransforms(ctx: DecompilerContext): TransformDetections {
     pack: NEUTRAL(),
     stringConcealing: detectStringConcealing(ctx),
     stringSplitting: NEUTRAL(),
-    calculator: NEUTRAL(),
+    calculator: detectCalculator(ctx),
     duplicateLiteralsRemoval: NEUTRAL(),
     objectExtraction: NEUTRAL(),
     globalConcealing: detectGlobalConcealing(ctx),
