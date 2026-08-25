@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
 import * as t from "@babel/types";
 import { decompile } from "../../src/index.js";
+import { generateJavaScript } from "../../src/parser/generate.js";
 import { parseJavaScript } from "../../src/parser/parse.js";
 
 const testDir = dirname(fileURLToPath(import.meta.url));
@@ -59,6 +60,66 @@ function containsIdentifier(node: t.Node, name: string): boolean {
     if (candidate.type === "Identifier" && candidate.name === name) found = true;
   });
   return found;
+}
+
+function withExtraArgumentTargets(source: string): string {
+  const ast = parseJavaScript(source);
+  const main = ast.program.body.find(
+    (statement): statement is t.FunctionDeclaration =>
+      statement.type === "FunctionDeclaration" && statement.params.length >= 4,
+  );
+  const argument = main?.params[3];
+  const argumentName = argument?.type === "Identifier"
+    ? argument.name
+    : argument?.type === "AssignmentPattern" && argument.left.type === "Identifier"
+      ? argument.left.name
+      : null;
+  if (!argumentName) throw new Error("CFF main argument parameter not found");
+
+  let changed = 0;
+  visit(ast.program, (node) => {
+    if (
+      node.type !== "AssignmentExpression" ||
+      node.operator !== "=" ||
+      node.right.type !== "Identifier" ||
+      node.right.name !== argumentName ||
+      node.left.type !== "ArrayPattern" ||
+      node.left.elements.length !== 1
+    ) {
+      return;
+    }
+    node.left.elements.push(
+      t.memberExpression(t.identifier("globalThis"), t.identifier("__cff_test_dummy")),
+    );
+    changed += 1;
+  });
+  if (changed < 2) throw new Error(`expected at least two one-argument CFF destructurings, got ${changed}`);
+  return generateJavaScript(ast);
+}
+
+async function expectTwiceReconstructed(source: string): Promise<void> {
+  const result = await decompile(source);
+  const wrappers = result.report.recovery.cffWrappers as Array<{
+    exportName: string;
+    scopePath: string[];
+  }>;
+  const twiceWrapper = wrappers.find((wrapper) => wrapper.exportName === "twice");
+  expect(twiceWrapper).toBeDefined();
+
+  const property = twiceWrapper!.scopePath.at(-1)!;
+  const fn = assignedFunction(parseJavaScript(result.cleanCode), property);
+  expect(fn).not.toBeNull();
+  expect(fn?.params).toHaveLength(1);
+  expect(fn?.params[0]?.type).toBe("Identifier");
+
+  const bodies = result.report.recovery.cffBodies as Array<{
+    exportName: string;
+    reconstructed: boolean;
+  }> | undefined;
+  expect(bodies).toContainEqual({
+    exportName: "twice",
+    reconstructed: true,
+  });
 }
 
 it("reconstructs the exported twice CFF wrapper into a clean branch", async () => {
@@ -142,4 +203,8 @@ it("reconstructs the exported twice CFF wrapper into a clean branch", async () =
     exportName: "twice",
     reconstructed: true,
   });
+});
+
+it("recovers twice when the CFF argument destructuring has extra targets", async () => {
+  await expectTwiceReconstructed(withExtraArgumentTargets(fixture()));
 });
