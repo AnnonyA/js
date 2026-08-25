@@ -1,4 +1,4 @@
-name: Capture randomized CFF regression
+name: Capture second randomized CFF regression
 
 on:
   push:
@@ -23,7 +23,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - name: Capture first failing fresh CFF sample
+      - name: Capture next failing fresh CFF sample
         run: |
           node --input-type=module <<'NODE'
           import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -36,11 +36,11 @@ jobs:
             'utf8',
           );
           const expected = ['add3', 'scenario', 'twice'];
-          const directory = resolve('test/fixtures/2.1.3/controlFlowFlattening-regression');
+          const directory = resolve('test/fixtures/2.1.3/controlFlowFlattening-regression2');
           await mkdir(directory, { recursive: true });
 
           let captured = false;
-          for (let attempt = 1; attempt <= 30; attempt += 1) {
+          for (let attempt = 1; attempt <= 50; attempt += 1) {
             const obfuscated = await obfuscate(source, {
               target: 'node',
               compact: true,
@@ -56,26 +56,31 @@ jobs:
               .sort();
             if (JSON.stringify(bodies) === JSON.stringify(expected)) continue;
 
-            const wrappers = result.report.recovery.cffWrappers ?? [];
+            const metadata = {
+              attempt,
+              bodies,
+              wrappers: result.report.recovery.cffWrappers ?? [],
+              recoveryKeys: Object.keys(result.report.recovery).sort(),
+              warnings: result.report.warnings ?? [],
+            };
             await writeFile(resolve(directory, 'obfuscated.js'), obfuscated.code + '\n', 'utf8');
             await writeFile(
               resolve(directory, 'metadata.json'),
-              JSON.stringify({ attempt, bodies, wrappers }, null, 2) + '\n',
+              JSON.stringify(metadata, null, 2) + '\n',
               'utf8',
             );
             console.log('Captured failing attempt', attempt);
-            console.log('Bodies:', JSON.stringify(bodies));
-            console.log('Wrappers:', JSON.stringify(wrappers));
+            console.log(JSON.stringify(metadata));
             captured = true;
             break;
           }
 
-          if (!captured) throw new Error('No failing CFF sample found in 30 attempts');
+          if (!captured) throw new Error('No second failing CFF sample found in 50 attempts');
           NODE
       - name: Commit regression fixture
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add test/fixtures/2.1.3/controlFlowFlattening-regression/obfuscated.js test/fixtures/2.1.3/controlFlowFlattening-regression/metadata.json
-          git commit -m "test: capture CFF randomized regression fixture"
+          git add test/fixtures/2.1.3/controlFlowFlattening-regression2/obfuscated.js test/fixtures/2.1.3/controlFlowFlattening-regression2/metadata.json
+          git commit -m "test: capture second CFF randomized regression fixture"
           git push origin HEAD:feature/jsconfuser-cff-shared-wrapper-helpers
