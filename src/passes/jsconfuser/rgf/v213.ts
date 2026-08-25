@@ -207,6 +207,7 @@ function findRgfModel(ast: t.File): RgfModel | null {
     const declarator = statement.declarations[0];
     if (declarator?.id.type !== "Identifier" || declarator.init?.type !== "ArrayExpression") continue;
     if (declarator.init.elements.length === 0) continue;
+    const arrayName = declarator.id.name;
 
     let evalName: string | null = null;
     const payloads: RgfPayload[] = [];
@@ -227,7 +228,7 @@ function findRgfModel(ast: t.File): RgfModel | null {
         valid = false;
         break;
       }
-      const payload = extractPayload(element.arguments[0].value, declarator.id.name);
+      const payload = extractPayload(element.arguments[0].value, arrayName);
       if (!payload) {
         valid = false;
         break;
@@ -248,7 +249,7 @@ function findRgfModel(ast: t.File): RgfModel | null {
     rewriteNodes(ast, (node) => {
       if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression") {
         if (node === evalHelper) return node;
-        const index = rgfStubIndex(node, declarator.id.name);
+        const index = rgfStubIndex(node, arrayName);
         if (index !== null) stubs.push({ node, index });
       }
       return node;
@@ -272,7 +273,7 @@ function findRgfModel(ast: t.File): RgfModel | null {
       : null;
 
     return {
-      arrayName: declarator.id.name,
+      arrayName,
       evalName,
       arrayStatement: statement,
       payloads,
