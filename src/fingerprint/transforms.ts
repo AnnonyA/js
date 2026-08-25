@@ -4,6 +4,7 @@ import { detectObjectExtraction } from "./detectors/objectExtraction.js";
 import { detectPack } from "./detectors/pack.js";
 import { detectRgf } from "./detectors/rgf.js";
 import { detectStringConcealing } from "./detectors/stringConcealing.js";
+import { detectStringSplitting } from "./detectors/stringSplitting.js";
 import {
   detectControlFlowFlattening,
   detectDeadCode,
@@ -43,7 +44,7 @@ export function detectTransforms(ctx: DecompilerContext): TransformDetections {
   return {
     pack: detectPack(ctx),
     stringConcealing: detectStringConcealing(ctx),
-    stringSplitting: NEUTRAL(),
+    stringSplitting: detectStringSplitting(ctx),
     calculator: detectCalculator(ctx),
     duplicateLiteralsRemoval: NEUTRAL(),
     objectExtraction: detectObjectExtraction(ctx),

@@ -14,6 +14,7 @@ import { createObjectExtraction213Pass } from "./jsconfuser/extraction/objectExt
 import { createGlobalConcealing213Pass } from "./jsconfuser/globals/v213.js";
 import { createPack213Pass } from "./jsconfuser/pack/v213.js";
 import { createRgf213Pass } from "./jsconfuser/rgf/v213.js";
+import { createStringSplitting213Pass } from "./jsconfuser/strings/splitting213.js";
 import { createStringConcealing213Pass } from "./jsconfuser/strings/v213.js";
 import { createVariableMasking213Pass } from "./jsconfuser/variableMasking/v213.js";
 
@@ -29,6 +30,7 @@ export function registerBuiltInPasses(registry: PassRegistry): void {
   registerTransformPass(registry, createPack213Pass(), "pack");
   registerTransformPass(registry, createDuplicateLiterals213Pass(), "duplicateLiteralsRemoval");
   registerTransformPass(registry, createStringConcealing213Pass(), "stringConcealing");
+  registerTransformPass(registry, createStringSplitting213Pass(), "stringSplitting");
   registerTransformPass(registry, createRgf213Pass(), "rgf");
   registerTransformPass(registry, createGlobalConcealing213Pass(), "globalConcealing");
   registerTransformPass(registry, createObjectExtraction213Pass(), "objectExtraction");
