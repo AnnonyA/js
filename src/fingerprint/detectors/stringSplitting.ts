@@ -8,6 +8,6 @@ export function detectStringSplitting(ctx: DecompilerContext): DetectionResult {
 
   return detection(0.99, [
     `${candidates.length} js-confuser-style literal concatenation chains`,
-    "left-deep string additions include the generated empty-string sentinel",
+    "left-deep additions use uniform generated chunk widths with a bounded final chunk",
   ]);
 }
