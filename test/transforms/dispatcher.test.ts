@@ -22,9 +22,43 @@ it("reconstructs directly recoverable 2.1.3 dispatcher functions and calls", asy
   expect(result.cleanCode).toContain("add3(x, x, 0)");
   expect(result.cleanCode).toContain("twice(value)");
   expect(result.cleanCode).toMatch(/module\["exports"\]\s*=\s*\{/);
-  expect(result.cleanCode).toMatch(/\["add3"\]: add3/);
-  expect(result.cleanCode).toMatch(/\["twice"\]: twice/);
-  expect(result.cleanCode).toMatch(/\["scenario"\]: scenario/);
+
+  const exportAssignment = result.ast.clean.program.body.find(
+    (statement) =>
+      statement.type === "ExpressionStatement" &&
+      statement.expression.type === "AssignmentExpression" &&
+      statement.expression.left.type === "MemberExpression" &&
+      statement.expression.left.object.type === "Identifier" &&
+      statement.expression.left.object.name === "module" &&
+      statement.expression.right.type === "ObjectExpression",
+  );
+  expect(exportAssignment?.type).toBe("ExpressionStatement");
+  if (
+    exportAssignment?.type !== "ExpressionStatement" ||
+    exportAssignment.expression.type !== "AssignmentExpression" ||
+    exportAssignment.expression.right.type !== "ObjectExpression"
+  ) {
+    throw new Error("expected module.exports object assignment");
+  }
+  const exportValues = Object.fromEntries(
+    exportAssignment.expression.right.properties.flatMap((property) => {
+      if (property.type !== "ObjectProperty") return [];
+      const key =
+        property.key.type === "StringLiteral"
+          ? property.key.value
+          : property.key.type === "Identifier"
+            ? property.key.name
+            : null;
+      if (!key) return [];
+      return [[key, property.value.type === "Identifier" ? property.value.name : property.value.type]];
+    }),
+  );
+  expect(exportValues).toEqual({
+    add3: "add3",
+    twice: "twice",
+    scenario: "scenario",
+  });
+
   expect(result.cleanCode).not.toMatch(/_dispatcher_\d+/);
   expect(result.cleanCode).not.toMatch(/_payload/);
   expect(result.cleanCode).not.toMatch(/_cache/);
