@@ -26,8 +26,7 @@ jobs:
         run: |
           node <<'NODE'
           const fs = require('node:fs');
-          const tsModule = require('typescript');
-          const ts = tsModule.default ?? tsModule;
+          const { parse } = require('@babel/parser');
 
           const files = [
             'src/passes/jsconfuser/cff/body213.ts',
@@ -51,31 +50,36 @@ jobs:
           ]);
           const importBlock = `import {\n  UNKNOWN,\n  applyStateExpression,\n  decodeXor,\n  dynamicMemberPath,\n  evaluateInner,\n  evaluateOuter,\n  expandRuntimeStateArray,\n  pathsEqual,\n  selectedCaseIndex,\n  staticMemberPath,\n  visitNodes,\n} from "./runtime213.js";\n`;
 
+          function parseTs(text) {
+            return parse(text, {
+              sourceType: 'module',
+              plugins: ['typescript'],
+            }).program;
+          }
+
           for (const file of files) {
             let text = fs.readFileSync(file, 'utf8');
-            const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+            const source = parseTs(text);
             const removals = [];
 
-            for (const statement of source.statements) {
+            for (const statement of source.body) {
               if (
-                ts.isFunctionDeclaration(statement) &&
-                statement.name &&
-                sharedFunctions.has(statement.name.text)
+                statement.type === 'FunctionDeclaration' &&
+                statement.id &&
+                sharedFunctions.has(statement.id.name)
               ) {
-                removals.push([statement.getFullStart(), statement.end]);
+                removals.push([statement.start, statement.end]);
                 continue;
               }
-              if (ts.isTypeAliasDeclaration(statement) && statement.name.text === 'Value') {
-                removals.push([statement.getFullStart(), statement.end]);
+              if (statement.type === 'TSTypeAliasDeclaration' && statement.id.name === 'Value') {
+                removals.push([statement.start, statement.end]);
                 continue;
               }
-              if (ts.isVariableStatement(statement)) {
-                const names = statement.declarationList.declarations.map((decl) =>
-                  ts.isIdentifier(decl.name) ? decl.name.text : null,
+              if (statement.type === 'VariableDeclaration') {
+                const names = statement.declarations.map((decl) =>
+                  decl.id.type === 'Identifier' ? decl.id.name : null,
                 );
-                if (names.includes('UNKNOWN')) {
-                  removals.push([statement.getFullStart(), statement.end]);
-                }
+                if (names.includes('UNKNOWN')) removals.push([statement.start, statement.end]);
               }
             }
 
@@ -88,10 +92,10 @@ jobs:
               text = text.slice(0, start) + text.slice(end);
             }
 
-            const reparsed = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+            const reparsed = parseTs(text);
             let insertAt = 0;
-            for (const statement of reparsed.statements) {
-              if (ts.isImportDeclaration(statement)) insertAt = statement.end;
+            for (const statement of reparsed.body) {
+              if (statement.type === 'ImportDeclaration') insertAt = statement.end;
               else break;
             }
             if (!text.includes('from "./runtime213.js"')) {
