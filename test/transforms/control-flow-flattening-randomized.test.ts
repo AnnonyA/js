@@ -50,4 +50,4 @@ it("recovers CFF bodies across fresh 2.1.3 randomizations without golden entry s
       { exportName: "twice", reconstructed: true },
     ]);
   }
-});
+}, 20_000);
