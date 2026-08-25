@@ -23,6 +23,11 @@ interface CandidateDeclaration {
   value: t.Expression;
 }
 
+interface ReconstructionStats {
+  reconstructed: number;
+  referencesRestored: number;
+}
+
 function parseGeneratedIdentifier(
   name: string,
 ): { token: string; objectName: string; propertyName: string } | null {
@@ -165,7 +170,7 @@ function reconstructModelInStatements(
 function reconstructExtractedObjects(
   ast: t.File,
   models: readonly ExtractedObjectModel[],
-): { reconstructed: number; referencesRestored: number } {
+): ReconstructionStats {
   let reconstructed = 0;
   for (const model of models) {
     let found = false;
@@ -237,7 +242,7 @@ export function createObjectExtraction213Pass(): ReversePass {
       const models = findExtractedObjectModels(ctx.cleanAst);
       if (models.length === 0) return { changed: false };
 
-      let stats: { reconstructed: number; referencesRestored: number } | null = null;
+      let stats: ReconstructionStats | null = null;
       const transaction = runAstTransaction(
         ctx,
         "clean",
@@ -255,12 +260,13 @@ export function createObjectExtraction213Pass(): ReversePass {
         },
       );
 
+      const resultStats = stats as ReconstructionStats | null;
       return {
-        changed: transaction.committed && Boolean(stats?.reconstructed),
-        actions: stats
+        changed: transaction.committed && Boolean(resultStats?.reconstructed),
+        actions: resultStats
           ? [
-              `reconstructed ${stats.reconstructed} extracted objects`,
-              `restored ${stats.referencesRestored} object member references`,
+              `reconstructed ${resultStats.reconstructed} extracted objects`,
+              `restored ${resultStats.referencesRestored} object member references`,
             ]
           : [],
       };
