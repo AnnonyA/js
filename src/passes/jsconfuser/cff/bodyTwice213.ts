@@ -20,6 +20,11 @@ interface BodyRecoveryRecord {
   reconstructed: boolean;
 }
 
+interface NestedStateTrace {
+  invocationStates: number[];
+  innerStates: number[];
+}
+
 function visitNodes(node: t.Node, callback: (node: t.Node) => void): void {
   callback(node);
   const record = node as unknown as Record<string, unknown>;
@@ -484,13 +489,42 @@ function callPath(call: t.CallExpression, model: Cff213Model, states: readonly n
   return callee && t.isNode(callee) ? dynamicMemberPath(callee, model, states) : null;
 }
 
+function recursiveHelperStates(
+  node: t.AssignmentExpression,
+  model: Cff213Model,
+  outerStates: readonly number[],
+  privateScope: string,
+): { path: string[]; states: number[] } | null {
+  if (
+    node.operator !== "=" ||
+    node.left.type !== "MemberExpression" ||
+    node.right.type !== "FunctionExpression"
+  ) return null;
+  const path = staticMemberPath(node.left, model.scopeName);
+  if (!path || path.length !== 2 || path[0] !== privateScope) return null;
+  const body = node.right.body.body;
+  if (body.length !== 1 || body[0]?.type !== "ReturnStatement") return null;
+  const call = body[0].argument;
+  if (
+    call?.type !== "CallExpression" ||
+    call.callee.type !== "Identifier" ||
+    call.callee.name !== model.mainName ||
+    call.arguments.length < 1
+  ) return null;
+  const first = call.arguments[0];
+  if (!first || first.type === "SpreadElement") return null;
+  const states = expandRuntimeStateArray(first, model, outerStates);
+  return states && states.length >= 75 ? { path, states } : null;
+}
+
 function nestedStatesFromOuterTrace(
   model: Cff213Model,
   wrapper: ExportedCffWrapperModel,
   privateScope: string,
-): number[] | null {
+): NestedStateTrace | null {
   const states = [...wrapper.states];
   const seen = new Set<string>();
+  const helperStates = new Map<string, number[]>();
   for (let step = 0; step < 32; step += 1) {
     const signature = states.join(",");
     if (seen.has(signature)) return null;
@@ -500,15 +534,29 @@ function nestedStatesFromOuterTrace(
     let repeated = false;
     for (let cursor = selected; cursor < model.switchStatement.cases.length; cursor += 1) {
       const current = model.switchStatement.cases[cursor]!;
-      let nested: number[] | null = null;
+
+      visitNodes(t.blockStatement(current.consequent), (node) => {
+        if (node.type !== "AssignmentExpression") return;
+        const helper = recursiveHelperStates(node, model, states, privateScope);
+        if (helper) helperStates.set(helper.path.join("\u0000"), helper.states);
+      });
+
+      let nested: NestedStateTrace | null = null;
       visitNodes(t.blockStatement(current.consequent), (node) => {
         if (nested || node.type !== "CallExpression" || node.arguments.length < 1) return;
         const target = callPath(node, model, states);
         if (!target || target.length !== 2 || target[0] !== privateScope) return;
+        const invocationStates = helperStates.get(target.join("\u0000"));
+        if (!invocationStates) return;
         const first = node.arguments[0];
         if (!first || first.type === "SpreadElement") return;
-        const expanded = expandRuntimeStateArray(first, model, states);
-        if (expanded && expanded.length >= 75) nested = expanded;
+        const innerStates = expandRuntimeStateArray(first, model, states);
+        if (innerStates && innerStates.length >= 75) {
+          nested = {
+            invocationStates: [...invocationStates],
+            innerStates,
+          };
+        }
       });
       if (nested) return nested;
 
@@ -562,8 +610,8 @@ function tailExpression(node: t.Expression): t.Expression {
 
 function findTwiceSemanticSwitch(
   model: Cff213Model,
-  wrapper: ExportedCffWrapperModel,
-  nestedStates: readonly number[],
+  invocationStates: readonly number[],
+  innerStates: readonly number[],
   privateScope: string,
   inputSlotName: string,
   add3Path: readonly string[],
@@ -573,7 +621,7 @@ function findTwiceSemanticSwitch(
     if (node.type !== "SwitchStatement" || node === model.switchStatement) return;
     const innerPath = innerSwitchPath(node, model);
     if (!innerPath) return;
-    const inner = { path: innerPath, states: nestedStates };
+    const inner = { path: innerPath, states: innerStates };
     const inputPath = [privateScope, inputSlotName];
     let resultPath: string[] | null = null;
     let callMatch = false;
@@ -591,17 +639,17 @@ function findTwiceSemanticSwitch(
         candidate.left.type === "MemberExpression" &&
         candidate.right.type === "CallExpression"
       ) {
-        const calleePath = callPath(candidate.right, model, wrapper.states);
+        const calleePath = callPath(candidate.right, model, invocationStates);
         if (calleePath && pathsEqual(calleePath, add3Path) && candidate.right.arguments.length === 3) {
           const [first, second, third] = candidate.right.arguments;
           if (
             first && second && third &&
             first.type !== "SpreadElement" && second.type !== "SpreadElement" && third.type !== "SpreadElement"
           ) {
-            const firstPath = dynamicMemberPath(first, model, wrapper.states, inner);
-            const secondPath = dynamicMemberPath(second, model, wrapper.states, inner);
-            const zero = evaluateInner(third, model, wrapper.states, innerPath, nestedStates);
-            const targetPath = dynamicMemberPath(candidate.left, model, wrapper.states, inner);
+            const firstPath = dynamicMemberPath(first, model, invocationStates, inner);
+            const secondPath = dynamicMemberPath(second, model, invocationStates, inner);
+            const zero = evaluateInner(third, model, invocationStates, innerPath, innerStates);
+            const targetPath = dynamicMemberPath(candidate.left, model, invocationStates, inner);
             if (
               firstPath && secondPath && targetPath &&
               pathsEqual(firstPath, inputPath) &&
@@ -626,9 +674,9 @@ function findTwiceSemanticSwitch(
           t.isExpression(test.left.left) &&
           t.isExpression(test.left.right)
         ) {
-          const path = dynamicMemberPath(test.left.left, model, wrapper.states, inner);
-          const modulo = evaluateInner(test.left.right, model, wrapper.states, innerPath, nestedStates);
-          const zero = evaluateInner(test.right, model, wrapper.states, innerPath, nestedStates);
+          const path = dynamicMemberPath(test.left.left, model, invocationStates, inner);
+          const modulo = evaluateInner(test.left.right, model, invocationStates, innerPath, innerStates);
+          const zero = evaluateInner(test.right, model, invocationStates, innerPath, innerStates);
           if (path && resultPath && pathsEqual(path, resultPath) && modulo === 2 && zero === 0) {
             parityMatch = true;
           }
@@ -643,8 +691,8 @@ function findTwiceSemanticSwitch(
           t.isExpression(expression.left) &&
           t.isExpression(expression.right)
         ) {
-          const path = dynamicMemberPath(expression.left, model, wrapper.states, inner);
-          const right = evaluateInner(expression.right, model, wrapper.states, innerPath, nestedStates);
+          const path = dynamicMemberPath(expression.left, model, invocationStates, inner);
+          const right = evaluateInner(expression.right, model, invocationStates, innerPath, innerStates);
           if (path && typeof right === "number") {
             returnCandidates.push({ path, operator: expression.operator, right });
           }
@@ -684,9 +732,16 @@ function findTwicePattern(ctx: DecompilerContext, ast: t.File): TwicePattern | n
   if (!privateScope) return null;
   const input = inputSlot(ast, model, wrapper, privateScope);
   if (!input) return null;
-  const nestedStates = nestedStatesFromOuterTrace(model, wrapper, privateScope);
-  if (!nestedStates) return null;
-  if (!findTwiceSemanticSwitch(model, wrapper, nestedStates, privateScope, input, add3.scopePath)) {
+  const nested = nestedStatesFromOuterTrace(model, wrapper, privateScope);
+  if (!nested) return null;
+  if (!findTwiceSemanticSwitch(
+    model,
+    nested.invocationStates,
+    nested.innerStates,
+    privateScope,
+    input,
+    add3.scopePath,
+  )) {
     return null;
   }
   return {
@@ -800,7 +855,7 @@ export function createCffTwiceBody213Pass(): ReversePass {
           confidence: 0.99,
           evidence: [
             "wrapper entry and private argument slot are linked statically",
-            "nested generated state vector is expanded without executing input code",
+            "recursive main state and nested generated state vector are both expanded without executing input code",
             "add3 call target/arguments, modulo branch, and both return expressions agree structurally independent of shuffled switch-case order",
           ],
         },
