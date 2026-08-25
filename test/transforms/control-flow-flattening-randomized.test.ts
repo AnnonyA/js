@@ -41,10 +41,6 @@ it("recovers CFF bodies from a fresh 2.1.3 randomization without golden entry su
     exportName: string;
     reconstructed: boolean;
   }> | undefined;
-  if (!bodies?.some((body) => body.exportName === "add3")) {
-    console.error("RANDOMIZED_CFF_WRAPPERS", JSON.stringify(wrappers));
-    console.error("RANDOMIZED_CFF_SAMPLE", obfuscated);
-  }
   expect(
     bodies?.slice().sort((a, b) => a.exportName.localeCompare(b.exportName)),
   ).toEqual([
