@@ -23,6 +23,7 @@ import {
   innerSwitchPath,
   inputSlot,
   traceNestedStateInvocation,
+  tailExpression,
   wrapperModels,
   wrapperPrivateScope,
 } from "./wrapperRuntime213.js";
@@ -48,10 +49,6 @@ interface LoopCandidate {
   currentPath: string[];
   loopPath: string[];
   bound: number;
-}
-
-function tailExpression(node: t.Expression): t.Expression {
-  return node.type === "SequenceExpression" ? node.expressions.at(-1)! : node;
 }
 
 function forCandidate(

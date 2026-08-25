@@ -24,6 +24,7 @@ import {
   innerSwitchPath,
   inputSlot,
   traceNestedStateInvocation,
+  tailExpression,
   wrapperModels,
   wrapperPrivateScope,
 } from "./wrapperRuntime213.js";
@@ -38,10 +39,6 @@ interface TwicePattern {
 interface BodyRecoveryRecord {
   exportName: string;
   reconstructed: boolean;
-}
-
-function tailExpression(node: t.Expression): t.Expression {
-  return node.type === "SequenceExpression" ? node.expressions.at(-1)! : node;
 }
 
 function findTwiceSemanticSwitch(

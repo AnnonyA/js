@@ -24,6 +24,7 @@ import {
   findWrapperAssignment,
   innerSwitchPath,
   traceNestedStateInvocation,
+  tailExpression,
   wrapperPrivateScope,
 } from "./wrapperRuntime213.js";
 
@@ -77,10 +78,6 @@ function flattenPlus(node: t.Node): t.Expression[] | null {
     return left && right ? [...left, ...right] : null;
   }
   return t.isExpression(node) ? [node] : null;
-}
-
-function tailExpression(node: t.Expression): t.Expression {
-  return node.type === "SequenceExpression" ? node.expressions.at(-1)! : node;
 }
 
 function semanticBody(
