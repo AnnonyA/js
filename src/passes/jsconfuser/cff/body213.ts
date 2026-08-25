@@ -270,17 +270,18 @@ function dynamicMemberPath(
   node: t.Node,
   model: Cff213Model,
   states: readonly number[],
+  inner?: { path: readonly string[]; states: readonly number[] },
 ): string[] | null {
   if (node.type === "Identifier") return node.name === model.scopeName ? [] : null;
   if (node.type !== "MemberExpression") return null;
-  const parent = dynamicMemberPath(node.object, model, states);
+  const parent = dynamicMemberPath(node.object, model, states, inner);
   if (!parent || node.property.type === "PrivateName") return null;
   const property = !node.computed && node.property.type === "Identifier"
     ? node.property.name
     : node.computed && node.property.type === "StringLiteral"
       ? node.property.value
       : node.computed
-        ? decodeXor(node.property, model, states)
+        ? decodeXor(node.property, model, states, inner)
         : null;
   return property === null ? null : [...parent, property];
 }
@@ -539,9 +540,8 @@ function flattenPlus(node: t.Node): t.Expression[] | null {
   return t.isExpression(node) ? [node] : null;
 }
 
-function privateLeaf(node: t.Node, model: Cff213Model, privateScope: string): string | null {
-  const path = staticMemberPath(node, model.scopeName);
-  return path && path.length === 2 && path[0] === privateScope ? path[1]! : null;
+function tailExpression(node: t.Expression): t.Expression {
+  return node.type === "SequenceExpression" ? node.expressions.at(-1)! : node;
 }
 
 function semanticBody(
@@ -556,6 +556,22 @@ function semanticBody(
   alternate: string;
   consoleProperty: string;
 } | null {
+  type TotalCandidate = {
+    targetPath: string[];
+    parameterOrder: string[];
+  };
+  type LabelCandidate = {
+    targetPath: string[];
+    totalPath: string[];
+    threshold: number;
+    consequent: string;
+    alternate: string;
+  };
+  type ConsoleCandidate = {
+    argumentPath: string[];
+    property: string;
+  };
+
   const matches: Array<{
     parameterOrder: string[];
     threshold: number;
@@ -568,80 +584,116 @@ function semanticBody(
     if (node.type !== "SwitchStatement" || node === model.switchStatement) return;
     const innerPath = innerSwitchPath(node, model);
     if (!innerPath) return;
-    for (const switchCase of node.cases) {
-      const assignments: t.AssignmentExpression[] = [];
-      let consoleCall: t.CallExpression | null = null;
-      let hasReturn = false;
-      for (const statement of switchCase.consequent) {
-        visitNodes(statement, (candidate) => {
-          if (candidate.type === "AssignmentExpression") assignments.push(candidate);
-          if (candidate.type === "ReturnStatement") hasReturn = true;
-          if (
-            candidate.type === "CallExpression" &&
-            candidate.callee.type === "MemberExpression" &&
-            candidate.callee.object.type === "Identifier" &&
-            candidate.callee.object.name === "console"
-          ) consoleCall = candidate;
-        });
-      }
-      if (!consoleCall || !hasReturn) continue;
+    const inner = { path: innerPath, states: nestedStates };
+    const totals: TotalCandidate[] = [];
+    const labels: LabelCandidate[] = [];
+    const consoles: ConsoleCandidate[] = [];
+    const returns: string[][] = [];
 
-      let totalOperands: t.Expression[] | null = null;
-      for (const assignment of assignments) {
-        if (assignment.operator !== "=" || assignment.right.type !== "BinaryExpression") continue;
-        const operands = flattenPlus(assignment.right);
+    visitNodes(node, (candidate) => {
+      if (
+        candidate.type === "AssignmentExpression" &&
+        candidate.operator === "=" &&
+        candidate.left.type === "MemberExpression"
+      ) {
+        const targetPath = dynamicMemberPath(candidate.left, model, outerStates, inner);
+        if (!targetPath) return;
+
+        if (candidate.right.type === "BinaryExpression") {
+          const operands = flattenPlus(candidate.right);
+          if (operands?.length === 3) {
+            const parameterOrder = operands.map((operand) => {
+              const path = dynamicMemberPath(operand, model, outerStates, inner);
+              return path && path.length === 2 && path[0] === privateScope ? path[1]! : null;
+            });
+            if (parameterOrder.every((slot): slot is string => slot !== null)) {
+              totals.push({ targetPath, parameterOrder });
+            }
+          }
+        }
+
         if (
-          operands?.length === 3 &&
-          operands.every((operand) => privateLeaf(operand, model, privateScope) !== null)
+          candidate.right.type === "ConditionalExpression" &&
+          candidate.right.test.type === "BinaryExpression" &&
+          candidate.right.test.operator === ">" &&
+          t.isExpression(candidate.right.test.left) &&
+          t.isExpression(candidate.right.test.right)
         ) {
-          totalOperands = operands;
-          break;
+          const totalPath = dynamicMemberPath(candidate.right.test.left, model, outerStates, inner);
+          const threshold = evaluateInner(
+            candidate.right.test.right,
+            model,
+            outerStates,
+            innerPath,
+            nestedStates,
+          );
+          const consequent = candidate.right.consequent.type === "StringLiteral"
+            ? candidate.right.consequent.value
+            : decodeXor(candidate.right.consequent, model, outerStates, inner);
+          const alternate = candidate.right.alternate.type === "StringLiteral"
+            ? candidate.right.alternate.value
+            : decodeXor(candidate.right.alternate, model, outerStates, inner);
+          if (
+            totalPath &&
+            typeof threshold === "number" &&
+            consequent !== null &&
+            alternate !== null
+          ) {
+            labels.push({ targetPath, totalPath, threshold, consequent, alternate });
+          }
         }
       }
-      if (!totalOperands) continue;
-      const parameterOrder = totalOperands.map((operand) => privateLeaf(operand, model, privateScope));
-      if (parameterOrder.some((slot) => slot === null)) continue;
 
-      const labelAssignment = assignments.find(
-        (assignment) => assignment.operator === "=" && assignment.right.type === "ConditionalExpression",
-      );
-      if (!labelAssignment || labelAssignment.right.type !== "ConditionalExpression") continue;
-      const conditional = labelAssignment.right;
       if (
-        conditional.test.type !== "BinaryExpression" ||
-        conditional.test.operator !== ">" ||
-        !t.isExpression(conditional.test.right)
-      ) continue;
-      const threshold = evaluateInner(
-        conditional.test.right,
-        model,
-        outerStates,
-        innerPath,
-        nestedStates,
-      );
-      if (typeof threshold !== "number") continue;
-      const consequent = decodeXor(conditional.consequent, model, outerStates, { path: innerPath, states: nestedStates });
-      const alternate = decodeXor(conditional.alternate, model, outerStates, { path: innerPath, states: nestedStates });
-      if (consequent === null || alternate === null) continue;
+        candidate.type === "CallExpression" &&
+        candidate.callee.type === "MemberExpression" &&
+        candidate.callee.object.type === "Identifier" &&
+        candidate.callee.object.name === "console" &&
+        candidate.arguments.length >= 1 &&
+        candidate.callee.property.type !== "PrivateName"
+      ) {
+        const argument = candidate.arguments[0];
+        if (!argument || argument.type === "SpreadElement") return;
+        const argumentPath = dynamicMemberPath(argument, model, outerStates, inner);
+        const property = !candidate.callee.computed && candidate.callee.property.type === "Identifier"
+          ? candidate.callee.property.name
+          : candidate.callee.computed && candidate.callee.property.type === "StringLiteral"
+            ? candidate.callee.property.value
+            : candidate.callee.computed
+              ? decodeXor(candidate.callee.property, model, outerStates, inner)
+              : null;
+        if (argumentPath && property) consoles.push({ argumentPath, property });
+      }
 
-      const call = consoleCall as t.CallExpression;
-      if (call.callee.type !== "MemberExpression" || call.callee.property.type === "PrivateName") continue;
-      const consoleProperty = !call.callee.computed && call.callee.property.type === "Identifier"
-        ? call.callee.property.name
-        : call.callee.computed
-          ? decodeXor(call.callee.property, model, outerStates, { path: innerPath, states: nestedStates })
-          : null;
-      if (!consoleProperty) continue;
-      matches.push({
-        parameterOrder: parameterOrder as string[],
-        threshold,
-        consequent,
-        alternate,
-        consoleProperty,
-      });
+      if (candidate.type === "ReturnStatement" && candidate.argument && t.isExpression(candidate.argument)) {
+        const path = dynamicMemberPath(tailExpression(candidate.argument), model, outerStates, inner);
+        if (path) returns.push(path);
+      }
+    });
+
+    for (const total of totals) {
+      for (const label of labels) {
+        if (!pathsEqual(label.totalPath, total.targetPath)) continue;
+        const console = consoles.find((item) => pathsEqual(item.argumentPath, label.targetPath));
+        if (!console) continue;
+        if (!returns.some((path) => pathsEqual(path, total.targetPath))) continue;
+        matches.push({
+          parameterOrder: total.parameterOrder,
+          threshold: label.threshold,
+          consequent: label.consequent,
+          alternate: label.alternate,
+          consoleProperty: console.property,
+        });
+      }
     }
   });
-  return matches.length === 1 ? matches[0]! : null;
+
+  const unique = new Map<string, (typeof matches)[number]>();
+  for (const match of matches) {
+    const key = JSON.stringify(match);
+    unique.set(key, match);
+  }
+  return unique.size === 1 ? [...unique.values()][0]! : null;
 }
 
 function findAdd3Pattern(ast: t.File): Add3Pattern | null {
