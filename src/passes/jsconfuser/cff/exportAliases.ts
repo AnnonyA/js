@@ -44,10 +44,9 @@ function isFinalMainEntry(ast: t.File, mainName: string): boolean {
 }
 
 function decodedExportNames(ast: t.File): string[] | null {
-  let result: string[] | null = null;
+  const candidates: string[][] = [];
 
   visitNodes(ast.program, (node) => {
-    if (result) return;
     if (
       node.type !== "AssignmentExpression" ||
       node.operator !== "=" ||
@@ -75,10 +74,10 @@ function decodedExportNames(ast: t.File): string[] | null {
     }
 
     if (names.length === 0 || new Set(names).size !== names.length) return;
-    result = names;
+    candidates.push(names);
   });
 
-  return result;
+  return candidates.length === 1 ? candidates[0]! : null;
 }
 
 function identifierNames(ast: t.File): Set<string> {
@@ -172,6 +171,7 @@ export function createCffExportAliasesPass(): ReversePass {
           confidence: 0.995,
           evidence: [
             "CFF entry invocation is the final original top-level statement",
+            "exactly one decoded module.exports object is present",
             "aliases preserve the exact module.exports property values without wrapping",
             "candidate names do not appear as identifiers anywhere in the transformed AST",
           ],
