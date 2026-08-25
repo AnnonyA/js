@@ -117,6 +117,14 @@ it("does not alias an ambiguous second module.exports object", async () => {
   expect(Object.fromEntries(aliases)).toEqual({});
 });
 
+it("also treats dot-notation module.exports objects as ambiguous", async () => {
+  const source = `function unrelated(){module.exports={["wrong"]:1}};\n${cffFixture()}`;
+  const result = await decompile(source);
+  const aliases = collectExportAliases(parseJavaScript(result.cleanCode));
+
+  expect(Object.fromEntries(aliases)).toEqual({});
+});
+
 it("does not treat an ordinary while-switch state machine as js-confuser CFF", async () => {
   const source = `
 let state = 0;
