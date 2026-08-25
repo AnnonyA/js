@@ -5,6 +5,7 @@ import { detectTransforms } from "../fingerprint/transforms.js";
 import { generateJavaScript } from "../parser/generate.js";
 import { normalizeSyntax } from "../parser/normalize.js";
 import { parseJavaScript } from "../parser/parse.js";
+import { registerBuiltInPasses } from "../passes/builtins.js";
 import { validateSyntax } from "../validation/syntax.js";
 import type {
   DecompileOptions,
@@ -75,6 +76,7 @@ export class DecompilerSession {
 
   constructor(options: DecompileOptions = {}) {
     this.options = resolveOptions(options);
+    registerBuiltInPasses(this.registry);
   }
 
   get context(): DecompilerContext {
