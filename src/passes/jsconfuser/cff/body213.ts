@@ -649,7 +649,7 @@ function findAdd3Pattern(ast: t.File): Add3Pattern | null {
   if (models.length !== 1) return null;
   const model = models[0]!;
   const wrapper = findExportedCffWrapperModels(ast).find((item) => item.exportName === "add3");
-  if (!wrapper || wrapper.entrySum !== -750) return null;
+  if (!wrapper) return null;
   const wrapperAssignment = findWrapperAssignment(ast, model, wrapper);
   if (!wrapperAssignment) return null;
   const privateScope = wrapperPrivateScope(wrapperAssignment, model);

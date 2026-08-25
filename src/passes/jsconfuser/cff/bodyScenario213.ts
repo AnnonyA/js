@@ -638,7 +638,7 @@ function findScenarioPattern(ctx: DecompilerContext, ast: t.File): ScenarioPatte
   const wrappers = wrapperModels(ctx);
   const wrapper = wrappers.find((item) => item.exportName === "scenario");
   const twice = wrappers.find((item) => item.exportName === "twice");
-  if (!wrapper || !twice || wrapper.entrySum !== -23) return null;
+  if (!wrapper || !twice) return null;
   const wrapperAssignment = findWrapperAssignment(ast, model, wrapper);
   if (!wrapperAssignment) return null;
   const privateScope = wrapperPrivateScope(wrapperAssignment, model);
