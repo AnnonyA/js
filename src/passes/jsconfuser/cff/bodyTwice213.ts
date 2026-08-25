@@ -15,6 +15,7 @@ import {
   pathsEqual,
   selectedCaseIndex,
   staticMemberPath,
+  traceInnerSwitchCases,
   visitNodes,
 } from "./runtime213.js";
 
@@ -287,7 +288,9 @@ function findTwiceSemanticSwitch(
     if (node.type !== "SwitchStatement" || node === model.switchStatement) return;
     const innerPath = innerSwitchPath(node, model);
     if (!innerPath) return;
-    const inner = { path: innerPath, states: innerStates };
+    const traces = traceInnerSwitchCases(node, model, invocationStates, innerPath, innerStates);
+    if (!traces) return;
+
     const inputPath = [privateScope, inputSlotName];
     let resultPath: string[] | null = null;
     let callMatch = false;
@@ -298,73 +301,77 @@ function findTwiceSemanticSwitch(
       right: number;
     }> = [];
 
-    visitNodes(node, (candidate) => {
-      if (
-        candidate.type === "AssignmentExpression" &&
-        candidate.operator === "=" &&
-        candidate.left.type === "MemberExpression" &&
-        candidate.right.type === "CallExpression"
-      ) {
-        const calleePath = callPath(candidate.right, model, invocationStates);
-        if (calleePath && pathsEqual(calleePath, add3Path) && candidate.right.arguments.length === 3) {
-          const [first, second, third] = candidate.right.arguments;
-          if (
-            first && second && third &&
-            first.type !== "SpreadElement" && second.type !== "SpreadElement" && third.type !== "SpreadElement"
-          ) {
-            const firstPath = dynamicMemberPath(first, model, invocationStates, inner);
-            const secondPath = dynamicMemberPath(second, model, invocationStates, inner);
-            const zero = evaluateInner(third, model, invocationStates, innerPath, innerStates);
-            const targetPath = dynamicMemberPath(candidate.left, model, invocationStates, inner);
-            if (
-              firstPath && secondPath && targetPath &&
-              pathsEqual(firstPath, inputPath) &&
-              pathsEqual(secondPath, inputPath) &&
-              zero === 0
-            ) {
-              resultPath = targetPath;
-              callMatch = true;
-            }
-          }
-        }
-      }
-
-      if (candidate.type === "IfStatement" && candidate.test.type === "BinaryExpression") {
-        const test = candidate.test;
+    for (const trace of traces) {
+      const currentStates = trace.states;
+      const inner = { path: innerPath, states: currentStates };
+      visitNodes(t.blockStatement(trace.switchCase.consequent), (candidate) => {
         if (
-          (test.operator === "===" || test.operator === "==") &&
-          t.isExpression(test.left) &&
-          t.isExpression(test.right) &&
-          test.left.type === "BinaryExpression" &&
-          test.left.operator === "%" &&
-          t.isExpression(test.left.left) &&
-          t.isExpression(test.left.right)
+candidate.type === "AssignmentExpression" &&
+candidate.operator === "=" &&
+candidate.left.type === "MemberExpression" &&
+candidate.right.type === "CallExpression"
         ) {
-          const path = dynamicMemberPath(test.left.left, model, invocationStates, inner);
-          const modulo = evaluateInner(test.left.right, model, invocationStates, innerPath, innerStates);
-          const zero = evaluateInner(test.right, model, invocationStates, innerPath, innerStates);
-          if (path && resultPath && pathsEqual(path, resultPath) && modulo === 2 && zero === 0) {
-            parityMatch = true;
-          }
+const calleePath = callPath(candidate.right, model, invocationStates);
+if (calleePath && pathsEqual(calleePath, add3Path) && candidate.right.arguments.length === 3) {
+  const [first, second, third] = candidate.right.arguments;
+  if (
+    first && second && third &&
+    first.type !== "SpreadElement" && second.type !== "SpreadElement" && third.type !== "SpreadElement"
+  ) {
+    const firstPath = dynamicMemberPath(first, model, invocationStates, inner);
+    const secondPath = dynamicMemberPath(second, model, invocationStates, inner);
+    const zero = evaluateInner(third, model, invocationStates, innerPath, currentStates);
+    const targetPath = dynamicMemberPath(candidate.left, model, invocationStates, inner);
+    if (
+      firstPath && secondPath && targetPath &&
+      pathsEqual(firstPath, inputPath) &&
+      pathsEqual(secondPath, inputPath) &&
+      zero === 0
+    ) {
+      resultPath = targetPath;
+      callMatch = true;
+    }
+  }
+}
         }
-      }
 
-      if (candidate.type === "ReturnStatement" && candidate.argument && t.isExpression(candidate.argument)) {
-        const expression = tailExpression(candidate.argument);
-        if (
-          expression.type === "BinaryExpression" &&
-          (expression.operator === "*" || expression.operator === "+") &&
-          t.isExpression(expression.left) &&
-          t.isExpression(expression.right)
-        ) {
-          const path = dynamicMemberPath(expression.left, model, invocationStates, inner);
-          const right = evaluateInner(expression.right, model, invocationStates, innerPath, innerStates);
-          if (path && typeof right === "number") {
-            returnCandidates.push({ path, operator: expression.operator, right });
-          }
+        if (candidate.type === "IfStatement" && candidate.test.type === "BinaryExpression") {
+const test = candidate.test;
+if (
+  (test.operator === "===" || test.operator === "==") &&
+  t.isExpression(test.left) &&
+  t.isExpression(test.right) &&
+  test.left.type === "BinaryExpression" &&
+  test.left.operator === "%" &&
+  t.isExpression(test.left.left) &&
+  t.isExpression(test.left.right)
+) {
+  const path = dynamicMemberPath(test.left.left, model, invocationStates, inner);
+  const modulo = evaluateInner(test.left.right, model, invocationStates, innerPath, currentStates);
+  const zero = evaluateInner(test.right, model, invocationStates, innerPath, currentStates);
+  if (path && resultPath && pathsEqual(path, resultPath) && modulo === 2 && zero === 0) {
+    parityMatch = true;
+  }
+}
         }
-      }
-    });
+
+        if (candidate.type === "ReturnStatement" && candidate.argument && t.isExpression(candidate.argument)) {
+const expression = tailExpression(candidate.argument);
+if (
+  expression.type === "BinaryExpression" &&
+  (expression.operator === "*" || expression.operator === "+") &&
+  t.isExpression(expression.left) &&
+  t.isExpression(expression.right)
+) {
+  const path = dynamicMemberPath(expression.left, model, invocationStates, inner);
+  const right = evaluateInner(expression.right, model, invocationStates, innerPath, currentStates);
+  if (path && typeof right === "number") {
+    returnCandidates.push({ path, operator: expression.operator, right });
+  }
+}
+        }
+      });
+    }
 
     const doubleReturn = Boolean(resultPath) && returnCandidates.some(
       (candidate) =>
