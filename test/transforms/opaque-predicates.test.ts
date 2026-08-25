@@ -13,18 +13,16 @@ const baseline = {
 };
 
 async function obfuscateWithOpaquePredicate(source: string): Promise<string> {
-  let last = "";
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const obfuscated = await obfuscate213(source, {
       ...baseline,
       opaquePredicates: true,
     });
-    last = obfuscated;
-    if (/_dummyFunction/.test(obfuscated) && /\sin\s/.test(obfuscated)) {
+    if (/_dummyFunction/.test(obfuscated) && /in __p_/.test(obfuscated)) {
       return obfuscated;
     }
   }
-  throw new Error(`js-confuser 2.1.3 sample did not match expected opaque signature: ${last}`);
+  throw new Error("js-confuser 2.1.3 did not emit the expected opaque predicate topology");
 }
 
 it("removes proven 2.1.3 opaque predicates and their dummy function", async () => {
@@ -44,8 +42,8 @@ if (test) {
   expect(result.report.transforms.opaquePredicates).toBeGreaterThanOrEqual(0.8);
   expect(result.safeCode).not.toContain("_dummyFunction");
   expect(result.cleanCode).not.toContain("_dummyFunction");
-  expect(result.safeCode).not.toMatch(/\sin\s+__p_/);
-  expect(result.cleanCode).not.toMatch(/\sin\s+__p_/);
+  expect(result.safeCode).not.toMatch(/in\s+__p_/);
+  expect(result.cleanCode).not.toMatch(/in\s+__p_/);
   expect(result.cleanCode).toContain("Incorrect Value");
   expect(result.cleanCode).toContain("Correct Value");
   expect(() => parseJavaScript(result.safeCode)).not.toThrow();
