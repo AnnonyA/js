@@ -26,6 +26,7 @@ module.exports = function calculate() {
 
   const result = await decompile(obfuscated);
 
+  expect(result.report.transforms.calculator).toBeGreaterThanOrEqual(0.8);
   expect(result.cleanCode).not.toMatch(/_calc/);
   expect(result.cleanCode).toContain("const a = 5;");
   expect(result.cleanCode).toContain("const b = 7;");
@@ -48,6 +49,7 @@ module.exports = userCalculator("plus", 2, 3);
 `;
   const result = await decompile(source);
 
+  expect(result.report.transforms.calculator).toBeLessThan(0.5);
   expect(result.cleanCode).toContain("sideEffects++");
   expect(result.cleanCode).toContain("userCalculator(\"plus\", 2, 3)");
 });
