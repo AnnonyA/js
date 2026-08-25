@@ -1,5 +1,7 @@
 import { cloneNode } from "@babel/types";
 import { analyzeBindings } from "../analysis/bindings/index.js";
+import { fingerprintProgram } from "../fingerprint/detector.js";
+import { detectTransforms } from "../fingerprint/transforms.js";
 import { generateJavaScript } from "../parser/generate.js";
 import { normalizeSyntax } from "../parser/normalize.js";
 import { parseJavaScript } from "../parser/parse.js";
@@ -94,7 +96,21 @@ export class DecompilerSession {
 
   async analyze(): Promise<void> {
     const ctx = this.context;
+    const fingerprint = fingerprintProgram(ctx);
+    const transforms = detectTransforms(ctx);
+
+    ctx.facts.set("fingerprint", fingerprint);
+    ctx.facts.set("analysis.transforms", transforms);
     ctx.facts.set("analysis.bindings", analyzeBindings(ctx.inputAst));
+
+    ctx.report.fingerprint = {
+      jsConfuserConfidence: fingerprint.jsConfuserConfidence,
+      family: fingerprint.family,
+      versionCandidates: { ...fingerprint.versionCandidates },
+    };
+    ctx.report.transforms = Object.fromEntries(
+      Object.entries(transforms).map(([id, result]) => [id, result.confidence]),
+    );
   }
 
   async reverse(): Promise<void> {
