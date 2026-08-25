@@ -21,6 +21,11 @@ interface Add3Pattern {
   consoleProperty: string;
 }
 
+interface NestedStateTrace {
+  invocationStates: number[];
+  innerStates: number[];
+}
+
 function visitNodes(node: t.Node, callback: (node: t.Node) => void): void {
   callback(node);
   const record = node as unknown as Record<string, unknown>;
@@ -458,14 +463,43 @@ function callTargetPath(call: t.CallExpression, model: Cff213Model, states: read
   return callee && t.isNode(callee) ? dynamicMemberPath(callee, model, states) : null;
 }
 
+function recursiveHelperStates(
+  node: t.AssignmentExpression,
+  model: Cff213Model,
+  outerStates: readonly number[],
+  privateScope: string,
+): { path: string[]; states: number[] } | null {
+  if (
+    node.operator !== "=" ||
+    node.left.type !== "MemberExpression" ||
+    node.right.type !== "FunctionExpression"
+  ) return null;
+  const path = staticMemberPath(node.left, model.scopeName);
+  if (!path || path.length !== 2 || path[0] !== privateScope) return null;
+  const body = node.right.body.body;
+  if (body.length !== 1 || body[0]?.type !== "ReturnStatement") return null;
+  const call = body[0].argument;
+  if (
+    call?.type !== "CallExpression" ||
+    call.callee.type !== "Identifier" ||
+    call.callee.name !== model.mainName ||
+    call.arguments.length < 1
+  ) return null;
+  const first = call.arguments[0];
+  if (!first || first.type === "SpreadElement") return null;
+  const states = expandRuntimeStateArray(first, model, outerStates);
+  return states && states.length >= 75 ? { path, states } : null;
+}
+
 function nestedStatesFromOuterTrace(
   model: Cff213Model,
   wrapper: ExportedCffWrapperModel,
   privateScope: string,
-): number[] | null {
+): NestedStateTrace | null {
   const states = [...wrapper.states];
   const seen = new Set<string>();
-  for (let step = 0; step < 32; step += 1) {
+  const helperStates = new Map<string, number[]>();
+  for (let step = 0; step < 40; step += 1) {
     const signature = states.join(",");
     if (seen.has(signature)) return null;
     seen.add(signature);
@@ -474,15 +508,29 @@ function nestedStatesFromOuterTrace(
     let repeated = false;
     for (let cursor = selected; cursor < model.switchStatement.cases.length; cursor += 1) {
       const current = model.switchStatement.cases[cursor]!;
-      let nested: number[] | null = null;
+
+      visitNodes(t.blockStatement(current.consequent), (node) => {
+        if (node.type !== "AssignmentExpression") return;
+        const helper = recursiveHelperStates(node, model, states, privateScope);
+        if (helper) helperStates.set(helper.path.join("\u0000"), helper.states);
+      });
+
+      let nested: NestedStateTrace | null = null;
       visitNodes(t.blockStatement(current.consequent), (node) => {
         if (nested || node.type !== "CallExpression" || node.arguments.length < 1) return;
         const target = callTargetPath(node, model, states);
         if (!target || target.length !== 2 || target[0] !== privateScope) return;
+        const invocationStates = helperStates.get(target.join("\u0000"));
+        if (!invocationStates) return;
         const first = node.arguments[0];
         if (!first || first.type === "SpreadElement") return;
-        const expanded = expandRuntimeStateArray(first, model, states);
-        if (expanded && expanded.length >= 75) nested = expanded;
+        const innerStates = expandRuntimeStateArray(first, model, states);
+        if (innerStates && innerStates.length >= 75) {
+          nested = {
+            invocationStates: [...invocationStates],
+            innerStates,
+          };
+        }
       });
       if (nested) return nested;
 
@@ -708,9 +756,9 @@ function findAdd3Pattern(ast: t.File): Add3Pattern | null {
   if (!privateScope) return null;
   const parameterSlots = parameterSlotsFromEntry(model, wrapper, privateScope);
   if (!parameterSlots || new Set(parameterSlots).size !== 3) return null;
-  const nestedStates = nestedStatesFromOuterTrace(model, wrapper, privateScope);
-  if (!nestedStates) return null;
-  const body = semanticBody(model, wrapper.states, nestedStates, privateScope);
+  const nested = nestedStatesFromOuterTrace(model, wrapper, privateScope);
+  if (!nested) return null;
+  const body = semanticBody(model, nested.invocationStates, nested.innerStates, privateScope);
   if (!body || body.consoleProperty !== "log") return null;
   const totalOperands = body.parameterOrder.map((slot) => parameterSlots.indexOf(slot));
   if (totalOperands.some((index) => index < 0) || new Set(totalOperands).size !== 3) return null;
