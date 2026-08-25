@@ -24,21 +24,39 @@ function stringLeaves(node: t.Node): string[] | null {
   return left && right ? [...left, ...right] : null;
 }
 
-function isJsConfuserSplitShape(leaves: readonly string[]): boolean {
-  if (leaves.length < 4) return false;
-  if (leaves[1] !== "") return false;
-  const nonEmpty = leaves.filter((value) => value.length > 0);
-  if (nonEmpty.length < 3) return false;
-  return nonEmpty.join("").length > 12;
+function leftDeepStringChunks(node: t.Node): string[] | null {
+  const reversed: string[] = [];
+  let current: t.Node = node;
+
+  while (current.type === "BinaryExpression" && current.operator === "+") {
+    if (current.right.type !== "StringLiteral" || !t.isExpression(current.left)) {
+      return null;
+    }
+    reversed.push(current.right.value);
+    current = current.left;
+  }
+
+  if (current.type !== "StringLiteral") return null;
+  reversed.push(current.value);
+  return reversed.reverse();
+}
+
+function isJsConfuserSplitShape(chunks: readonly string[]): boolean {
+  if (chunks.length < 3) return false;
+  const chunkSize = chunks[0]?.length ?? 0;
+  if (chunkSize < 6) return false;
+  if (chunks.slice(0, -1).some((chunk) => chunk.length !== chunkSize)) return false;
+  const lastSize = chunks.at(-1)?.length ?? 0;
+  return lastSize > 0 && lastSize <= chunkSize;
 }
 
 export function findStringSplittingCandidates(ast: t.File): StringSplittingCandidate[] {
   const candidates: StringSplittingCandidate[] = [];
   rewriteNodes(ast, (node) => {
     if (node.type !== "BinaryExpression" || node.operator !== "+") return node;
-    const leaves = stringLeaves(node);
-    if (!leaves || !isJsConfuserSplitShape(leaves)) return node;
-    candidates.push({ value: leaves.join(""), leaves });
+    const chunks = leftDeepStringChunks(node);
+    if (!chunks || !isJsConfuserSplitShape(chunks)) return node;
+    candidates.push({ value: chunks.join(""), leaves: chunks });
     return node;
   });
   return candidates;
@@ -70,7 +88,7 @@ export function createStringSplitting213Pass(): ReversePass {
         evidence: candidates.length > 0
           ? [
               `${candidates.length} left-deep literal string concatenation chains`,
-              "js-confuser empty-string sentinel appears after the first chunk",
+              "uniform generated chunk widths match js-confuser 2.1.3 string splitting",
             ]
           : [],
       };
@@ -81,7 +99,7 @@ export function createStringSplitting213Pass(): ReversePass {
         changed: false,
         facts: {
           "stringSplitting.candidates": candidates.map((candidate) => ({
-            chunks: candidate.leaves.length - 1,
+            chunks: candidate.leaves.length,
             length: candidate.value.length,
           })),
         },
