@@ -74,3 +74,49 @@ it("materializes a self-contained 2.1.3 fixture", async () => {
     rmSync(paths.directory, { recursive: true, force: true });
   }
 });
+
+it("stores the nine approved isolated 2.1.3 golden fixtures", () => {
+  const scriptPath = resolve(testDir, "../../scripts/generate-213-fixtures.ts");
+  const sourcePath = resolve(testDir, "2.1.3/sources/basic.js");
+  expect(existsSync(scriptPath)).toBe(true);
+  expect(existsSync(sourcePath)).toBe(true);
+
+  const fixtureOptions = {
+    renameVariables: { renameVariables: true, renameGlobals: true },
+    calculator: { calculator: true, renameGlobals: false },
+    stringConcealing: { stringConcealing: true, renameGlobals: false },
+    globalConcealing: { globalConcealing: true, renameGlobals: false },
+    variableMasking: { variableMasking: true, renameGlobals: false },
+    dispatcher: { dispatcher: true, renameGlobals: false },
+    controlFlowFlattening: {
+      controlFlowFlattening: true,
+      renameGlobals: false,
+    },
+    opaquePredicates: { opaquePredicates: true, renameGlobals: false },
+    deadCode: { deadCode: true, renameGlobals: false },
+  } as const;
+
+  for (const [name, primaryOptions] of Object.entries(fixtureOptions)) {
+    const directory = resolve(testDir, "2.1.3", name);
+    const optionsPath = resolve(directory, "options.json");
+    const obfuscatedPath = resolve(directory, "obfuscated.js");
+    const expectedPath = resolve(directory, "expected.json");
+    const fixtureSourcePath = resolve(directory, "source.js");
+
+    expect(existsSync(fixtureSourcePath), `${name}: source.js`).toBe(true);
+    expect(existsSync(optionsPath), `${name}: options.json`).toBe(true);
+    expect(existsSync(obfuscatedPath), `${name}: obfuscated.js`).toBe(true);
+    expect(existsSync(expectedPath), `${name}: expected.json`).toBe(true);
+
+    expect(JSON.parse(readFileSync(optionsPath, "utf8"))).toMatchObject({
+      target: "node",
+      compact: true,
+      renameLabels: false,
+      ...primaryOptions,
+    });
+    expect(() => parseJavaScript(readFileSync(obfuscatedPath, "utf8"))).not.toThrow();
+    expect(JSON.parse(readFileSync(expectedPath, "utf8"))).toEqual({
+      parseable: true,
+    });
+  }
+});
