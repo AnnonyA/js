@@ -4,6 +4,12 @@ export {
   decompile,
   resolveOptions,
 } from "./core/decompiler.js";
+export {
+  decompileFile,
+  runCli,
+  type CliRunOptions,
+  type DecompileFileOptions,
+} from "./cli/run.js";
 export { acceptsSafeConfidence } from "./policies/safe.js";
 export { acceptsCleanConfidence } from "./policies/clean.js";
 export type {
