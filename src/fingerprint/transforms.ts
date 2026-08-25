@@ -2,6 +2,7 @@ import type { DecompilerContext } from "../core/context.js";
 import { detectCalculator } from "./detectors/calculator.js";
 import { detectObjectExtraction } from "./detectors/objectExtraction.js";
 import { detectPack } from "./detectors/pack.js";
+import { detectRgf } from "./detectors/rgf.js";
 import { detectStringConcealing } from "./detectors/stringConcealing.js";
 import {
   detectControlFlowFlattening,
@@ -49,7 +50,7 @@ export function detectTransforms(ctx: DecompilerContext): TransformDetections {
     globalConcealing: detectGlobalConcealing(ctx),
     variableMasking: detectVariableMasking(ctx),
     dispatcher: detectDispatcher(ctx),
-    rgf: NEUTRAL(),
+    rgf: detectRgf(ctx),
     controlFlowFlattening: detectControlFlowFlattening(ctx),
     opaquePredicates: detectOpaquePredicates(ctx),
     deadCode: detectDeadCode(ctx),
