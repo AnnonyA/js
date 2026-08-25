@@ -34,6 +34,7 @@ jobs:
             '  if (!nested) return null;': '  if (!nested) { console.error("TWICE_FAIL nested", { wrapper, privateScope, input }); return null; }',
             '  return matchedSwitches === 1;': '  console.error("TWICE_SEMANTIC matchedSwitches", matchedSwitches);\n  return matchedSwitches === 1;',
             '    if (callMatch && parityMatch && doubleReturn && plusReturn) matchedSwitches += 1;': '    console.error("TWICE_SWITCH", { innerPath, resultPath, callMatch, parityMatch, doubleReturn, plusReturn, returnCandidates });\n    if (callMatch && parityMatch && doubleReturn && plusReturn) matchedSwitches += 1;',
+            '          const right = evaluateInner(expression.right, model, invocationStates, innerPath, innerStates);': '          const right = evaluateInner(expression.right, model, invocationStates, innerPath, innerStates);\n          console.error("TWICE_RETURN_EVAL", { right, outer: evaluateOuter(expression.right, model, invocationStates), innerPath, expression: JSON.stringify(expression.right) });',
           }
           for old, new in replacements.items():
             if old not in text:
