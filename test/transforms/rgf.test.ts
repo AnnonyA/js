@@ -85,3 +85,28 @@ TEST_OUTPUT = floorNumber(1.9);
   expect(result.cleanCode).toMatch(/_Math(?:\.floor|\["floor"\])\(num\)/);
   expect(() => parseJavaScript(result.cleanCode)).not.toThrow();
 });
+
+it("recovers RGF after statically unpacking a Pack wrapper", async () => {
+  const source = `
+function addTwoNumbers(a, b) {
+  return a + b;
+}
+TEST_OUTPUT = addTwoNumbers(10, 5);
+`;
+  const obfuscated = await obfuscate213(source, {
+    ...rgfOptions,
+    pack: true,
+  });
+
+  expect(obfuscated).toMatch(/\bFunction\s*\(/);
+  expect(obfuscated).toContain("_rgf_eval");
+
+  const result = await decompile(obfuscated);
+
+  expect(result.cleanCode).not.toMatch(/\bFunction\s*\(\s*["']/);
+  expect(result.cleanCode).not.toContain("_rgf_eval");
+  expect(result.cleanCode).toMatch(/function\s+addTwoNumbers\s*\(\s*a\s*,\s*b\s*\)/);
+  expect(result.cleanCode).toMatch(/return\s+a\s*\+\s*b/);
+  expect(result.cleanCode).toContain("TEST_OUTPUT = addTwoNumbers(10, 5)");
+  expect(() => parseJavaScript(result.cleanCode)).not.toThrow();
+});
