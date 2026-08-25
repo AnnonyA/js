@@ -13,16 +13,18 @@ const baseline = {
 };
 
 async function obfuscateWithOpaquePredicate(source: string): Promise<string> {
+  let last = "";
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const obfuscated = await obfuscate213(source, {
       ...baseline,
       opaquePredicates: true,
     });
+    last = obfuscated;
     if (/_dummyFunction/.test(obfuscated) && /\sin\s/.test(obfuscated)) {
       return obfuscated;
     }
   }
-  throw new Error("js-confuser 2.1.3 did not emit an opaque predicate in 8 attempts");
+  throw new Error(`js-confuser 2.1.3 sample did not match expected opaque signature: ${last}`);
 }
 
 it("removes proven 2.1.3 opaque predicates and their dummy function", async () => {
