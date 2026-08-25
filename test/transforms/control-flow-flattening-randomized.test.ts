@@ -42,12 +42,28 @@ it("recovers CFF bodies across fresh 2.1.3 randomizations without golden entry s
       exportName: string;
       reconstructed: boolean;
     }> | undefined;
-    expect(
-      bodies?.slice().sort((a, b) => a.exportName.localeCompare(b.exportName)),
-    ).toEqual([
+    const sortedBodies = bodies
+      ?.slice()
+      .sort((a, b) => a.exportName.localeCompare(b.exportName));
+    const expectedBodies = [
       { exportName: "add3", reconstructed: true },
       { exportName: "scenario", reconstructed: true },
       { exportName: "twice", reconstructed: true },
-    ]);
+    ];
+
+    if (JSON.stringify(sortedBodies) !== JSON.stringify(expectedBodies)) {
+      console.error(
+        "RANDOMIZED_CFF_FAILURE",
+        JSON.stringify({
+          iteration,
+          wrappers,
+          passes: result.report.passes,
+          recovery: result.report.recovery,
+        }),
+      );
+      console.error("RANDOMIZED_CFF_SOURCE", obfuscated);
+    }
+
+    expect(sortedBodies).toEqual(expectedBodies);
   }
 });
