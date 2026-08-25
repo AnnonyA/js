@@ -1,0 +1,53 @@
+name: Run add3 CFF fix
+
+on:
+  push:
+    branches:
+      - feature/jsconfuser-cff-shared-wrapper-helpers
+    paths:
+      - .github/workflows/run-add3-inner-cff-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/jsconfuser-cff-shared-wrapper-helpers
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+      - run: npm ci
+      - name: Extract and run staged add3 patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          workflow = Path('.github/workflows/fix-add3-inner-cff-state.yml').read_text()
+          start_token = "          python - <<'PY'\n"
+          end_token = "\n          PY\n"
+          start = workflow.index(start_token) + len(start_token)
+          end = workflow.index(end_token, start)
+          lines = workflow[start:end].splitlines()
+          script = "\n".join(line[10:] if line.startswith("          ") else line for line in lines) + "\n"
+          Path('/tmp/fix_add3_inner_cff.py').write_text(script)
+          PY
+          python /tmp/fix_add3_inner_cff.py
+      - name: Verify second deterministic regression
+        run: npm test -- --run test/transforms/control-flow-flattening-regression2.test.ts
+      - name: Verify first deterministic regression
+        run: npm test -- --run test/transforms/control-flow-flattening-regression.test.ts
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test -- --run --testTimeout=15000
+      - run: git diff --check
+      - name: Commit verified add3 fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/passes/jsconfuser/cff/body213.ts
+          git commit -m "fix: evaluate add3 CFF semantics per case"
+          git push origin HEAD:feature/jsconfuser-cff-shared-wrapper-helpers
