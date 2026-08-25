@@ -21,6 +21,32 @@ function cffFixture(): string {
   );
 }
 
+function collectExportAliases(ast: t.File): Map<string, string> {
+  const aliases = new Map<string, string>();
+  for (const statement of ast.program.body) {
+    if (statement.type !== "VariableDeclaration") continue;
+    for (const declaration of statement.declarations) {
+      if (declaration.id.type !== "Identifier") continue;
+      const init = declaration.init;
+      if (
+        init?.type !== "MemberExpression" ||
+        init.object.type !== "MemberExpression" ||
+        init.object.object.type !== "Identifier" ||
+        init.object.object.name !== "module" ||
+        !init.object.computed ||
+        init.object.property.type !== "StringLiteral" ||
+        init.object.property.value !== "exports" ||
+        !init.computed ||
+        init.property.type !== "StringLiteral"
+      ) {
+        continue;
+      }
+      aliases.set(declaration.id.name, init.property.value);
+    }
+  }
+  return aliases;
+}
+
 it("traces the 2.1.3 CFF entry state and decodes the exported API", async () => {
   const result = await decompile(cffFixture());
   const ast = parseJavaScript(result.cleanCode);
@@ -74,36 +100,21 @@ it("traces the 2.1.3 CFF entry state and decodes the exported API", async () => 
 
 it("materializes collision-free top-level names for decoded CFF exports", async () => {
   const result = await decompile(cffFixture());
-  const ast = parseJavaScript(result.cleanCode);
-  const aliases = new Map<string, string>();
-
-  for (const statement of ast.program.body) {
-    if (statement.type !== "VariableDeclaration") continue;
-    for (const declaration of statement.declarations) {
-      if (declaration.id.type !== "Identifier") continue;
-      const init = declaration.init;
-      if (
-        init?.type !== "MemberExpression" ||
-        init.object.type !== "MemberExpression" ||
-        init.object.object.type !== "Identifier" ||
-        init.object.object.name !== "module" ||
-        !init.object.computed ||
-        init.object.property.type !== "StringLiteral" ||
-        init.object.property.value !== "exports" ||
-        !init.computed ||
-        init.property.type !== "StringLiteral"
-      ) {
-        continue;
-      }
-      aliases.set(declaration.id.name, init.property.value);
-    }
-  }
+  const aliases = collectExportAliases(parseJavaScript(result.cleanCode));
 
   expect(Object.fromEntries(aliases)).toEqual({
     add3: "add3",
     twice: "twice",
     scenario: "scenario",
   });
+});
+
+it("does not alias an ambiguous second module.exports object", async () => {
+  const source = `function unrelated(){module["exports"]={["wrong"]:1}};\n${cffFixture()}`;
+  const result = await decompile(source);
+  const aliases = collectExportAliases(parseJavaScript(result.cleanCode));
+
+  expect(Object.fromEntries(aliases)).toEqual({});
 });
 
 it("does not treat an ordinary while-switch state machine as js-confuser CFF", async () => {
