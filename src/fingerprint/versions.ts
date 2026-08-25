@@ -11,7 +11,9 @@ export function rankVersionCandidates(
 ): Record<string, number> {
   if (confidence < 0.5) return {};
 
-  const stateArray = matched(evidence, "cff.largeNumericStateArray");
+  const stateArray =
+    matched(evidence, "cff.largeNumericStateArray") ||
+    matched(evidence, "cff.signedNumericStateArray");
   const stateXor = matched(evidence, "cff.stateStringXorHelper");
   const dynamicTransitions = matched(
     evidence,
