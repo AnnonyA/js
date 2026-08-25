@@ -81,6 +81,7 @@ jobs:
             "dynamicMemberPath",
             "selectedCaseIndex",
             "expandRuntimeStateArray",
+            "callTargetPath",
             "nestedStatesFromOuterTrace",
             "innerSwitchPath",
             "tailExpression",
@@ -89,12 +90,19 @@ jobs:
           const runtimeParts = [];
           for (const name of orderedFunctions) {
             let source = sourceFunction(canonical, name);
+            if (name === "callTargetPath") {
+              source = source.replace("function callTargetPath(", "function callPath(");
+              if (!source.includes("function callPath(")) {
+                throw new Error("Failed to expose callPath");
+              }
+            }
             if (name === "nestedStatesFromOuterTrace") {
               source = source.replace(
                 /privateScope: string,\n\): NestedStateTrace \| null \{/,
                 "privateScope: string,\n  maxSteps = 32,\n): NestedStateTrace | null {",
               );
               source = source.replace("step < 40", "step < maxSteps");
+              source = source.replaceAll("callTargetPath(", "callPath(");
               if (!source.includes("maxSteps = 32") || !source.includes("step < maxSteps")) {
                 throw new Error("Failed to parameterize nested state trace budget");
               }
@@ -105,7 +113,7 @@ jobs:
           const runtime = `import * as t from "@babel/types";\nimport type { Cff213Model } from "./model.js";\nimport type { ExportedCffWrapperModel } from "./wrappers.js";\n\nconst UNKNOWN = Symbol("unknown");\ntype Value = number | string | boolean | null | undefined | typeof UNKNOWN;\n\nexport interface NestedStateTrace {\n  invocationStates: number[];\n  innerStates: number[];\n}\n\n${runtimeParts.join("\n\n")}\n`;
           writeFileSync(`${dir}/runtime213.ts`, runtime);
 
-          const sharedImport = `import {\n  decodeXor,\n  dynamicMemberPath,\n  evaluateInner,\n  evaluateOuter,\n  expandRuntimeStateArray,\n  innerSwitchPath,\n  nestedStatesFromOuterTrace,\n  pathsEqual,\n  selectedCaseIndex,\n  staticMemberPath,\n  tailExpression,\n  visitNodes,\n} from "./runtime213.js";\n`;
+          const sharedImport = `import {\n  callPath,\n  decodeXor,\n  dynamicMemberPath,\n  evaluateInner,\n  evaluateOuter,\n  expandRuntimeStateArray,\n  innerSwitchPath,\n  nestedStatesFromOuterTrace,\n  pathsEqual,\n  selectedCaseIndex,\n  staticMemberPath,\n  tailExpression,\n  visitNodes,\n} from "./runtime213.js";\n`;
 
           function stripRuntime(path, extraFunctionNames = []) {
             let text = readFileSync(path, "utf8");
