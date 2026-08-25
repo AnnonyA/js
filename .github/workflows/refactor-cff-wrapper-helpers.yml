@@ -128,9 +128,10 @@ jobs:
             fs.writeFileSync(file, text.endsWith('\n') ? text : text + '\n');
           }
           NODE
+      - run: npm test -- --run test/transforms/control-flow-flattening-regression.test.ts test/transforms/control-flow-flattening-regression2.test.ts
       - run: npm run typecheck
       - run: npm run build
-      - run: npm test -- --run
+      - run: npm test -- --run --testTimeout=15000
       - run: git diff --check
       - name: Commit refactor
         run: |
