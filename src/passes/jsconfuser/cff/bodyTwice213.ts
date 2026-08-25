@@ -349,7 +349,14 @@ function mainArgumentName(ast: t.File, mainName: string): string | null {
   for (const statement of ast.program.body) {
     if (statement.type !== "FunctionDeclaration" || statement.id?.name !== mainName) continue;
     const parameter = statement.params[3];
-    return parameter?.type === "Identifier" ? parameter.name : null;
+    if (parameter?.type === "Identifier") return parameter.name;
+    if (
+      parameter?.type === "AssignmentPattern" &&
+      parameter.left.type === "Identifier"
+    ) {
+      return parameter.left.name;
+    }
+    return null;
   }
   return null;
 }
