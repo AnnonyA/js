@@ -15,7 +15,7 @@ function sourceFixture(): string {
 }
 
 it("recovers CFF bodies across fresh 2.1.3 randomizations without golden entry sums", async () => {
-  for (let iteration = 0; iteration < 3; iteration += 1) {
+  for (let iteration = 0; iteration < 12; iteration += 1) {
     const obfuscated = await obfuscate213(sourceFixture(), {
       controlFlowFlattening: true,
       renameGlobals: false,
@@ -66,4 +66,4 @@ it("recovers CFF bodies across fresh 2.1.3 randomizations without golden entry s
 
     expect(sortedBodies).toEqual(expectedBodies);
   }
-}, 30_000);
+}, 60_000);
