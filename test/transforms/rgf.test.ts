@@ -108,5 +108,7 @@ TEST_OUTPUT = addTwoNumbers(10, 5);
   expect(result.cleanCode).toMatch(/function\s+addTwoNumbers\s*\(\s*a\s*,\s*b\s*\)/);
   expect(result.cleanCode).toMatch(/return\s+a\s*\+\s*b/);
   expect(result.cleanCode).toContain("TEST_OUTPUT = addTwoNumbers(10, 5)");
+  expect(result.report.transforms.pack).toBeGreaterThanOrEqual(0.9);
+  expect(result.report.transforms.rgf).toBeGreaterThanOrEqual(0.9);
   expect(() => parseJavaScript(result.cleanCode)).not.toThrow();
 });
